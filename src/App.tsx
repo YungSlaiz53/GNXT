@@ -4,11 +4,16 @@
  */
 
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { Web3Provider } from './lib/web3';
+import {
+  QueryClient,
+  QueryClientProvider,
+} from '@tanstack/react-query';
 import { Layout } from './components/layout/Layout';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { useEffect } from 'react';
 import { seedSurveys } from './lib/seedSurveys';
+
+const queryClient = new QueryClient();
 
 // Pages
 import Dashboard from './pages/Dashboard';
@@ -23,15 +28,24 @@ import ProtectedRoute from './components/ProtectedRoute';
 
 export default function App() {
   useEffect(() => {
+    // Capture referral code from URL and save to localStorage
+    const params = new URLSearchParams(window.location.search);
+    const ref = params.get('ref');
+    if (ref) {
+      localStorage.setItem('referralCode', ref);
+      console.log('Captured referral code:', ref);
+    }
+    
     seedSurveys();
   }, []);
 
   return (
-    <Web3Provider>
+    <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <Router>
           <Routes>
-            <Route path="/auth" element={<Auth />} />
+  <Route path="/auth" element={<Auth />} />
+            <Route path="/signup" element={<Auth />} />
             
             {/* Protected Routes */}
             <Route path="/" element={
@@ -70,7 +84,7 @@ export default function App() {
           </Routes>
         </Router>
       </AuthProvider>
-    </Web3Provider>
+    </QueryClientProvider>
   );
 }
 

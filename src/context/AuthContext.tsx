@@ -5,7 +5,8 @@ import {
   GoogleAuthProvider, 
   signOut,
   User,
-  Auth
+  Auth,
+  createUserWithEmailAndPassword
 } from 'firebase/auth';
 import { initFirebase, getFirebaseAuth, getFirebaseDb } from '../lib/firebase';
 import { doc, getDoc, setDoc, onSnapshot, serverTimestamp, Firestore, updateDoc, increment, collection, query, where, getDocs, limit } from 'firebase/firestore';
@@ -17,6 +18,7 @@ interface AuthContextType {
   loading: boolean;
   isFirebaseReady: boolean;
   loginWithGoogle: () => Promise<void>;
+  signUp: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -29,6 +31,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isFirebaseReady, setIsFirebaseReady] = useState(false);
   const [authInstance, setAuthInstance] = useState<Auth | null>(null);
   const [dbInstance, setDbInstance] = useState<Firestore | null>(null);
+
+  const loginWithGoogle = async () => {
+    if (!authInstance) {
+      throw new Error('Firebase Auth not initialized');
+    }
+    const provider = new GoogleAuthProvider();
+    provider.addScope('email');
+    await signInWithPopup(authInstance, provider);
+    // onAuthStateChanged will update state
+  };
 
   // Initialise Firebase app and acquire auth/db instances
   useEffect(() => {
@@ -79,60 +91,71 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if (snap.exists()) {
               const data = snap.data() as UserProfile;
               setProfile(data);
+              setLoading(false); // Success: Profile loaded
             } else {
-              // Check for referral code in URL
-              const urlParams = new URLSearchParams(window.location.search);
-              const referralCodeFromUrl = urlParams.get('ref');
-              
-              const referralCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-              const newProfile: UserProfile = {
-                uid: user.uid,
-                username: user.displayName || 'User',
-                email: user.email || '',
-                points: referralCodeFromUrl ? 20 : 10, // 20 starting points if referred
-                referrals: 0,
-                referralCode,
-                isVerified: false,
-                joinedAt: serverTimestamp(),
-                lastLogin: serverTimestamp(),
-                completedTasks: [],
-                referredBy: referralCodeFromUrl || undefined
-              };
+            // Check for referral code in LocalStorage (set in App.tsx)
+            const referralCodeFromStorage = localStorage.getItem('referralCode');
+            console.log('Attempting to create profile with referral:', referralCodeFromStorage);
+            
+            const referralCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+            const newProfile: UserProfile = {
+              uid: user.uid,
+              username: user.displayName || 'User',
+              email: user.email || '',
+              points: referralCodeFromStorage ? 20 : 10,
+              referrals: 0,
+              referralCode,
+              isVerified: false,
+              joinedAt: serverTimestamp(),
+              lastLogin: serverTimestamp(),
+              completedTasks: [],
+              referredBy: referralCodeFromStorage || undefined
+            };
 
-              // If referred, award the referrer
-              if (referralCodeFromUrl) {
-                try {
-                  const referrersQuery = query(
-                    collection(dbInstance, 'users'), 
-                    where('referralCode', '==', referralCodeFromUrl),
-                    limit(1)
-                  );
-                  const referrerSnap = await getDocs(referrersQuery);
-                  
-                  if (!referrerSnap.empty) {
-                    const referrerDoc = referrerSnap.docs[0];
-                    await updateDoc(doc(dbInstance, 'users', referrerDoc.id), {
-                      points: increment(20), // Reward for referring
-                      referrals: increment(1)
-                    });
-                    console.log('Referrer rewarded:', referralCodeFromUrl);
-                  }
-                } catch (err) {
-                  console.error('Referral award error:', err);
+            // If referred, award the referrer
+            if (referralCodeFromStorage) {
+              try {
+                const referrersQuery = query(
+                  collection(dbInstance, 'users'), 
+                  where('referralCode', '==', referralCodeFromStorage),
+                  limit(1)
+                );
+                const referrerSnap = await getDocs(referrersQuery);
+                
+                if (!referrerSnap.empty) {
+                  const referrerDoc = referrerSnap.docs[0];
+                  await updateDoc(doc(dbInstance, 'users', referrerDoc.id), {
+                    points: increment(20),
+                    referrals: increment(1)
+                  });
+                  console.log('Referrer rewarded successfully:', referralCodeFromStorage);
+                } else {
+                  console.warn('Referral code not found in database:', referralCodeFromStorage);
                 }
+              } catch (err) {
+                console.error('Referral award error:', err);
               }
-
-              console.log('Creating new profile for:', user.email);
-              await setDoc(profileRef, newProfile);
-              setProfile(newProfile);
+              // Clean up storage
+              localStorage.removeItem('referralCode');
             }
-          });
-        } catch (e) {
-          console.error('Profile sync error:', e);
-        }
-      } else {
-        setProfile(null);
+
+            console.log('Writing new profile to Firestore:', newProfile);
+            await setDoc(profileRef, newProfile);
+            setProfile(newProfile);
+            setLoading(false); // Success: Profile created
+          }
+        }, (err) => {
+          console.error('onSnapshot error:', err);
+          setLoading(false);
+        });
+      } catch (e) {
+        console.error('Profile sync error:', e);
+        setLoading(false);
       }
+    } else {
+      setProfile(null);
+      setLoading(false); // Success: No user logged in
+    }
     });
 
     return () => {
@@ -141,37 +164,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [authInstance, dbInstance]);
 
-  const loginWithGoogle = async () => {
+  // Sign up with email/password
+  const signUp = async (email: string, password: string) => {
     if (!authInstance) {
       throw new Error('Firebase Auth not initialized');
     }
     if (!dbInstance) {
       throw new Error('Firestore not initialized');
     }
-    const provider = new GoogleAuthProvider();
-    // Ensure email is requested
-    provider.addScope('email');
-    const result = await signInWithPopup(authInstance, provider);
-    const signedUser = result.user;
-    // Update email in Firestore if available
-    if (signedUser.email) {
-      const profileRef = doc(dbInstance, 'users', signedUser.uid);
-      await setDoc(profileRef, { email: signedUser.email }, { merge: true });
-    }
-    // onAuthStateChanged will handle setting user/profile state
-
+    // Create user
+    const { user } = await createUserWithEmailAndPassword(authInstance, email, password);
+    // Create a profile document for the new user
+    const profileRef = doc(dbInstance, 'users', user.uid);
+    const newProfile: UserProfile = {
+      uid: user.uid,
+      username: user.email?.split('@')[0] ?? 'User',
+      email: user.email ?? '',
+      points: 10,
+      referrals: 0,
+      referralCode: Math.random().toString(36).substring(2, 8).toUpperCase(),
+      isVerified: false,
+      joinedAt: serverTimestamp(),
+      lastLogin: serverTimestamp(),
+      completedTasks: [],
+      // No referredBy for direct signup
+    };
+    await setDoc(profileRef, newProfile);
+    // onAuthStateChanged listener will set user/profile state
   };
 
   const logout = async () => {
+    setLoading(true);
     if (authInstance) {
       await signOut(authInstance);
     }
     setUser(null);
     setProfile(null);
+    setLoading(false);
   };
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, isFirebaseReady, loginWithGoogle, logout }}>
+    <AuthContext.Provider value={{ user, profile, loading, isFirebaseReady, loginWithGoogle, signUp, logout }}>
       {children}
     </AuthContext.Provider>
   );

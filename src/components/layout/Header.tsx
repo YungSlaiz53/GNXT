@@ -1,4 +1,4 @@
-import { ConnectButton } from '@rainbow-me/rainbowkit';
+import WalletConnect from '../WalletConnect';
 import { Bell, Menu } from 'lucide-react';
 
 interface HeaderProps {
@@ -17,20 +17,16 @@ export function Header({ onMenuClick }: HeaderProps) {
         </button>
         
         <div className="hidden sm:block">
-          <h2 className="text-[10px] uppercase tracking-[0.2em] text-white/40 font-bold">Current Network</h2>
+          <h2 className="text-[10px] uppercase tracking-[0.2em] text-white/40 font-bold">Current Node</h2>
           <p className="text-sm font-medium flex items-center mt-0.5">
             <span className="w-2 h-2 rounded-full bg-brand mr-2 shadow-[0_0_8px_rgba(204,255,0,0.6)]"></span>
-            Polygon Mainnet
+            Cardano Preprod
           </p>
         </div>
       </div>
 
       <div className="flex items-center space-x-3 lg:space-x-6">
-        <ConnectButton 
-          accountStatus="address" 
-          chainStatus="icon" 
-          showBalance={false}
-        />
+        <WalletConnect />
         
         <button className="p-2 text-white/40 relative hover:text-brand transition-colors group hidden sm:block">
           <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-brand rounded-full border-2 border-black shadow-[0_0_8px_rgba(204,255,0,0.4)]"></span>

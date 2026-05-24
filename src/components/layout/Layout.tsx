@@ -37,7 +37,7 @@ export function Layout({ children }: { children: ReactNode }) {
         </div>
 
         {/* Footer Info Bar */}
-        <footer className="px-10 h-12 flex items-center justify-between border-t border-white/5 bg-black/40 text-[10px] text-white/20 uppercase tracking-[0.3em] absolute bottom-0 w-full backdrop-blur-sm">
+        <footer className="px-10 h-12 flex items-center justify-between border-t border-white/5 bg-black/40 text-[10px] text-white/20 uppercase tracking-[0.3em] w-full backdrop-blur-sm mt-auto shrink-0">
           <div className="flex space-x-6">
             <span>Protocol v2.1.0</span>
             <span>Uptime 99.98%</span>

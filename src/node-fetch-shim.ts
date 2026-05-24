@@ -1,0 +1,7 @@
+// Shim to redirect node-fetch to browser fetch
+export const fetch = window.fetch.bind(window);
+export const Headers = window.Headers;
+export const Request = window.Request;
+export const Response = window.Response;
+
+export default fetch;

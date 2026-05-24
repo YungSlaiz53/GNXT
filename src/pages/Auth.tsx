@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { motion } from 'motion/react';
+import { Link } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import { Mail, Lock, ArrowRight, Chrome, Shield } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { cn } from '../lib/utils';
@@ -7,7 +8,15 @@ import Login from '../components/Login';
 
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
-  const { loginWithGoogle } = useAuth();
+  const { loginWithGoogle, isFirebaseReady } = useAuth();
+
+  if (!isFirebaseReady) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-black">
+        <div className="w-12 h-12 border-4 border-brand/20 border-t-brand rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-[80vh] flex items-center justify-center p-4">
@@ -55,10 +64,17 @@ export default function Auth() {
             </div>
           </div>
 
-          <button className="w-full bg-brand text-black py-4 rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:shadow-brand transition-all">
-            {isLogin ? 'Sign In' : 'Create Account'}
-            <ArrowRight size={18} strokeWidth={3} />
-          </button>
+          {/* Button now navigates to signup when creating account */}
+          {isLogin ? (
+            <button className="w-full bg-brand text-black py-4 rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:shadow-brand transition-all">
+              Sign In
+              <ArrowRight size={18} strokeWidth={3} />
+            </button>
+          ) : (
+            <Link to="/signup" className="w-full bg-brand text-black py-4 rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:shadow-brand transition-all text-center">
+              Create Account
+            </Link>
+          )}
 
           <div className="relative py-4">
             <div className="absolute inset-0 flex items-center">

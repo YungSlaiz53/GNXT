@@ -24,13 +24,20 @@ export default function Referrals() {
 
       try {
         const q = query(
-          collection(db, 'users'),
-          where('referredBy', '==', profile.referralCode),
-          orderBy('joinedAt', 'desc')
+          collection(db, 'users'), 
+          where('referredBy', '==', profile.referralCode)
         );
         const snapshot = await getDocs(q);
         const fetched = snapshot.docs.map(doc => doc.data() as UserProfile);
-        setReferredUsers(fetched);
+        
+        // Sort manually by joinedAt to avoid needing a Firestore Index
+        const sorted = fetched.sort((a, b) => {
+          const timeA = a.joinedAt?.toMillis ? a.joinedAt.toMillis() : 0;
+          const timeB = b.joinedAt?.toMillis ? b.joinedAt.toMillis() : 0;
+          return timeB - timeA;
+        });
+        
+        setReferredUsers(sorted);
       } catch (e) {
         console.error('Error fetching referred users:', e);
       } finally {

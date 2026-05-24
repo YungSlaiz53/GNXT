@@ -1,5 +1,6 @@
 {
   "hosting": {
+    "site": "nextai-99aa5",
     "public": "dist",
     "ignore": [
       "firebase.json",
