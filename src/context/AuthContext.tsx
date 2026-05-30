@@ -17,6 +17,7 @@ interface AuthContextType {
   profile: UserProfile | null;
   loading: boolean;
   isFirebaseReady: boolean;
+  dbError: string | null;
   loginWithGoogle: () => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -29,6 +30,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [isFirebaseReady, setIsFirebaseReady] = useState(false);
+  const [dbError, setDbError] = useState<string | null>(null);
   const [authInstance, setAuthInstance] = useState<Auth | null>(null);
   const [dbInstance, setDbInstance] = useState<Firestore | null>(null);
 
@@ -73,8 +75,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     let unsubscribeProfile: (() => void) | null = null;
 
-    const unsubscribeAuth = onAuthStateChanged(authInstance, async (user) => {
-      setUser(user);
+    const unsubscribeAuth = onAuthStateChanged(authInstance, async (currentUser) => {
+      setUser(currentUser);
       
       // Clear existing profile listener if user changes
       if (unsubscribeProfile) {
@@ -82,80 +84,154 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         unsubscribeProfile = null;
       }
 
-      if (user) {
+      if (currentUser) {
+        const createFallbackProfile = () => {
+          return {
+            uid: currentUser.uid,
+            username: currentUser.displayName || currentUser.email?.split('@')[0] || 'User',
+            email: currentUser.email || '',
+            points: 10,
+            referrals: 0,
+            referralCode: 'LOCAL-' + currentUser.uid.substring(0, 5).toUpperCase(),
+            isVerified: false,
+            joinedAt: new Date(),
+            lastLogin: new Date(),
+            completedTasks: []
+          } as UserProfile;
+        };
+
         try {
-          const profileRef = doc(dbInstance, 'users', user.uid);
+          const profileRef = doc(dbInstance, 'users', currentUser.uid);
           
           // Use onSnapshot for real-time profile updates (points, rewards, etc.)
           unsubscribeProfile = onSnapshot(profileRef, async (snap) => {
-            if (snap.exists()) {
-              const data = snap.data() as UserProfile;
-              setProfile(data);
-              setLoading(false); // Success: Profile loaded
-            } else {
-            // Check for referral code in LocalStorage (set in App.tsx)
-            const referralCodeFromStorage = localStorage.getItem('referralCode');
-            console.log('Attempting to create profile with referral:', referralCodeFromStorage);
-            
-            const referralCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-            const newProfile: UserProfile = {
-              uid: user.uid,
-              username: user.displayName || 'User',
-              email: user.email || '',
-              points: referralCodeFromStorage ? 20 : 10,
-              referrals: 0,
-              referralCode,
-              isVerified: false,
-              joinedAt: serverTimestamp(),
-              lastLogin: serverTimestamp(),
-              completedTasks: [],
-              referredBy: referralCodeFromStorage || undefined
-            };
-
-            // If referred, award the referrer
-            if (referralCodeFromStorage) {
-              try {
-                const referrersQuery = query(
-                  collection(dbInstance, 'users'), 
-                  where('referralCode', '==', referralCodeFromStorage),
-                  limit(1)
-                );
-                const referrerSnap = await getDocs(referrersQuery);
+            try {
+              if (snap.exists()) {
+                const data = snap.data() as UserProfile;
                 
-                if (!referrerSnap.empty) {
-                  const referrerDoc = referrerSnap.docs[0];
-                  await updateDoc(doc(dbInstance, 'users', referrerDoc.id), {
-                    points: increment(20),
-                    referrals: increment(1)
-                  });
-                  console.log('Referrer rewarded successfully:', referralCodeFromStorage);
-                } else {
-                  console.warn('Referral code not found in database:', referralCodeFromStorage);
+                // If existing profile is missing email, update it in background if possible
+                if (currentUser.email && (!data.email || data.email === '')) {
+                  data.email = currentUser.email;
+                  try {
+                    await updateDoc(profileRef, { email: currentUser.email });
+                  } catch (e) {
+                    console.warn('Failed to update email in Firestore:', e);
+                  }
                 }
-              } catch (err) {
-                console.error('Referral award error:', err);
-              }
-              // Clean up storage
-              localStorage.removeItem('referralCode');
-            }
+                
+                setProfile(data);
+                setDbError(null); // Clear database errors on success
+                setLoading(false); // Success: Profile loaded
 
-            console.log('Writing new profile to Firestore:', newProfile);
-            await setDoc(profileRef, newProfile);
-            setProfile(newProfile);
-            setLoading(false); // Success: Profile created
-          }
-        }, (err) => {
-          console.error('onSnapshot error:', err);
+                // Sync referrals count dynamically to award points if write permissions blocked it during invitee signup
+                if (data.referralCode) {
+                  try {
+                    const referralsQuery = query(
+                      collection(dbInstance, 'users'),
+                      where('referredBy', '==', data.referralCode)
+                    );
+                    const referralsSnap = await getDocs(referralsQuery);
+                    const actualReferralsCount = referralsSnap.size;
+                    const storedReferrals = data.referrals || 0;
+                    
+                    if (actualReferralsCount > storedReferrals) {
+                      const newReferrals = actualReferralsCount - storedReferrals;
+                      const rewardPoints = newReferrals * 20;
+                      await updateDoc(profileRef, {
+                        referrals: actualReferralsCount,
+                        points: increment(rewardPoints)
+                      });
+                      console.log(`Synced ${newReferrals} new referral(s). Awarded ${rewardPoints} PTS.`);
+                    }
+                  } catch (syncErr) {
+                    console.warn('Failed to sync referrals count dynamically:', syncErr);
+                  }
+                }
+              } else {
+                // Check for referral code in LocalStorage (set in App.tsx)
+                const referralCodeFromStorage = localStorage.getItem('referralCode');
+                console.log('Attempting to create profile with referral:', referralCodeFromStorage);
+                
+                const referralCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+                const newProfile: UserProfile = {
+                  uid: currentUser.uid,
+                  username: currentUser.displayName || 'User',
+                  email: currentUser.email || '',
+                  points: referralCodeFromStorage ? 20 : 10,
+                  referrals: 0,
+                  referralCode,
+                  isVerified: false,
+                  joinedAt: serverTimestamp(),
+                  lastLogin: serverTimestamp(),
+                  completedTasks: []
+                };
+
+                if (referralCodeFromStorage) {
+                  newProfile.referredBy = referralCodeFromStorage;
+                }
+
+                // If referred, award the referrer
+                if (referralCodeFromStorage) {
+                  try {
+                    const referrersQuery = query(
+                      collection(dbInstance, 'users'), 
+                      where('referralCode', '==', referralCodeFromStorage),
+                      limit(1)
+                    );
+                    const referrerSnap = await getDocs(referrersQuery);
+                    
+                    if (!referrerSnap.empty) {
+                      const referrerDoc = referrerSnap.docs[0];
+                      await updateDoc(doc(dbInstance, 'users', referrerDoc.id), {
+                        points: increment(20),
+                        referrals: increment(1)
+                      });
+                      console.log('Referrer rewarded successfully:', referralCodeFromStorage);
+                    } else {
+                      console.warn('Referral code not found in database:', referralCodeFromStorage);
+                    }
+                  } catch (err) {
+                    console.error('Referral award error:', err);
+                  }
+                  // Clean up storage
+                  localStorage.removeItem('referralCode');
+                }
+
+                console.log('Writing new profile to Firestore:', newProfile);
+                try {
+                  await setDoc(profileRef, newProfile);
+                  setProfile(newProfile);
+                  setDbError(null); // Success writing
+                } catch (writeErr: any) {
+                  console.error('Failed to write profile to Firestore, using local memory profile:', writeErr);
+                  setDbError('Write Error: ' + (writeErr.message || String(writeErr)));
+                  setProfile(newProfile);
+                }
+                setLoading(false); // Success: Profile created
+              }
+            } catch (callbackErr: any) {
+              console.error('Error inside onSnapshot callback, using fallback:', callbackErr);
+              setDbError('Callback Error: ' + (callbackErr.message || String(callbackErr)));
+              setProfile(createFallbackProfile());
+              setLoading(false);
+            }
+          }, (err: any) => {
+            console.error('onSnapshot subscription error, using fallback profile:', err);
+            setDbError('Subscription/Read Error: ' + (err.message || String(err)));
+            setProfile(createFallbackProfile());
+            setLoading(false);
+          });
+        } catch (e: any) {
+          console.error('Profile sync error, using fallback:', e);
+          setDbError('Sync Setup Error: ' + (e.message || String(e)));
+          setProfile(createFallbackProfile());
           setLoading(false);
-        });
-      } catch (e) {
-        console.error('Profile sync error:', e);
-        setLoading(false);
+        }
+      } else {
+        setProfile(null);
+        setDbError(null);
+        setLoading(false); // Success: No user logged in
       }
-    } else {
-      setProfile(null);
-      setLoading(false); // Success: No user logged in
-    }
     });
 
     return () => {
@@ -176,19 +252,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { user } = await createUserWithEmailAndPassword(authInstance, email, password);
     // Create a profile document for the new user
     const profileRef = doc(dbInstance, 'users', user.uid);
+
+    const referralCodeFromStorage = localStorage.getItem('referralCode');
+    const referralCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+
     const newProfile: UserProfile = {
       uid: user.uid,
       username: user.email?.split('@')[0] ?? 'User',
       email: user.email ?? '',
-      points: 10,
+      points: referralCodeFromStorage ? 20 : 10,
       referrals: 0,
-      referralCode: Math.random().toString(36).substring(2, 8).toUpperCase(),
+      referralCode,
       isVerified: false,
       joinedAt: serverTimestamp(),
       lastLogin: serverTimestamp(),
-      completedTasks: [],
-      // No referredBy for direct signup
+      completedTasks: []
     };
+
+    if (referralCodeFromStorage) {
+      newProfile.referredBy = referralCodeFromStorage;
+
+      // Award the referrer (best effort)
+      try {
+        const referrersQuery = query(
+          collection(dbInstance, 'users'), 
+          where('referralCode', '==', referralCodeFromStorage),
+          limit(1)
+        );
+        const referrerSnap = await getDocs(referrersQuery);
+        
+        if (!referrerSnap.empty) {
+          const referrerDoc = referrerSnap.docs[0];
+          await updateDoc(doc(dbInstance, 'users', referrerDoc.id), {
+            points: increment(20),
+            referrals: increment(1)
+          });
+          console.log('Referrer rewarded successfully during email signup:', referralCodeFromStorage);
+        }
+      } catch (err) {
+        console.error('Referral award error during email signup:', err);
+      }
+      
+      // Clean up storage
+      localStorage.removeItem('referralCode');
+    }
+
     await setDoc(profileRef, newProfile);
     // onAuthStateChanged listener will set user/profile state
   };
@@ -204,7 +312,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, isFirebaseReady, loginWithGoogle, signUp, logout }}>
+    <AuthContext.Provider value={{ user, profile, loading, isFirebaseReady, dbError, loginWithGoogle, signUp, logout }}>
       {children}
     </AuthContext.Provider>
   );

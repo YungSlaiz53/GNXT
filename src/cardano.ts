@@ -121,26 +121,49 @@ export async function mintNXTP(amount: number): Promise<string> {
   });
 
   const policyId = lucid.utils.mintingPolicyToId(mintingPolicy);
-  
+
   // 2. Define the token name (hex encoded "NXTP")
-  const toHex = (str: string) => Array.from(new TextEncoder().encode(str)).map(b => b.toString(16).padStart(2, '0')).join('');
+  const toHex = (str: string) =>
+    Array.from(new TextEncoder().encode(str))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
   const tokenName = toHex("NXTP");
   const unit = policyId + tokenName;
 
-  // 3. Build the transaction
-    const utxos = await lucid.wallet.getUtxos();
-    const tx = await lucid
-      .newTx()
-      .mintAssets({ [unit]: BigInt(amount) })
-      .payToAddress(address, { lovelace: 3000000n, [unit]: BigInt(amount) })
-      .addInputs(utxos)
-      .validTo(Date.now() + 100000) // Valid for roughly 100 seconds
-      .attachMintingPolicy(mintingPolicy)
-      .complete();
+  // 3. Gather UTxOs and ensure the wallet has enough lovelace for the transaction
+  const utxos = await lucid.wallet.getUtxos();
+  const totalLovelace = utxos.reduce((sum, u) => sum + (u.assets.lovelace ?? 0n), 0n);
+  
+  // In Cardano, every UTxO containing native assets must carry a minimum ADA amount (usually ~1.4 to 1.5 ADA)
+  // to prevent spam and ledger bloat. 2,000,000 lovelace (2 ADA) is a safe, standard amount.
+  const minAdaForToken = 2_000_000n;
+  const safetyBuffer = 3_000_000n; // 3 ADA to cover transaction fees and change output
+  const requiredLovelace = minAdaForToken + safetyBuffer;
+  
+  if (totalLovelace < requiredLovelace) {
+    throw new Error(
+      `Insufficient ADA in wallet. You have ${Number(totalLovelace) / 1_000_000} ADA, but need at least ${
+        Number(requiredLovelace) / 1_000_000
+      } ADA (5 ADA) to cover the Cardano min-UTxO requirement and transaction fees.`
+    );
+  }
 
-  // 4. Sign and submit
+  // 4. Build the transaction – spend all gathered UTxOs and return change automatically
+  const tx = await lucid
+    .newTx()
+    .collectFrom(utxos)
+    .mintAssets({ [unit]: BigInt(amount) })
+    .payToAddress(address, {
+      lovelace: minAdaForToken, // minimal ADA for the token output
+      [unit]: BigInt(amount),
+    })
+    .validTo(Date.now() + 100_000) // Valid for roughly 100 seconds
+    .attachMintingPolicy(mintingPolicy)
+    .complete();
+
+  // 5. Sign and submit
   const signedTx = await tx.sign().complete();
   const txHash = await signedTx.submit();
-  
+
   return txHash;
 }
