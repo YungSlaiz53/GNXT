@@ -9,7 +9,7 @@ import { address as cardanoAddress, connectWallet } from '../cardano';
 import WalletConnect from '../components/WalletConnect';
 
 export default function Profile() {
-  const { profile, logout } = useAuth();
+  const { profile, logout, dbError } = useAuth();
   const [address, setAddress] = useState<string | null>(cardanoAddress);
   const [claiming, setClaiming] = useState(false);
   const [claimSuccess, setClaimSuccess] = useState(false);
@@ -88,6 +88,14 @@ export default function Profile() {
         <h1 className="text-4xl font-black uppercase tracking-tighter italic glow-text">My Identity</h1>
         <p className="text-white/40 font-medium italic">Manage your profile and track protocol achievements.</p>
       </div>
+
+      {dbError && (
+        <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-2xl text-xs font-semibold space-y-1">
+          <p className="font-bold uppercase tracking-wider">⚠️ Firestore Database Offline/Restricted</p>
+          <p className="opacity-85">{dbError}</p>
+          <p className="opacity-60 mt-1">This application is running in local memory fallback mode. To save records to Firestore, verify that your Firestore security rules allow read/write access for user profiles under the "users" collection.</p>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         <div className="md:col-span-1 space-y-6">

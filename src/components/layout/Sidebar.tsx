@@ -36,7 +36,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const [upgrading, setUpgrading] = useState(false);
 
   const handleUpgrade = async () => {
-    if (!profile || profile.points < 500) return;
+    if (!profile || profile.points < 200) return;
     
     setUpgrading(true);
     try {
@@ -45,7 +45,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       
       const userRef = doc(db, 'users', profile.uid);
       await updateDoc(userRef, {
-        points: increment(-500),
+        points: increment(-200),
         isVerified: true
       });
       
@@ -122,7 +122,10 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
               className="w-full bg-white/5 hover:bg-brand/10 border border-white/10 hover:border-brand/30 rounded-2xl p-4 transition-all text-left group relative overflow-hidden"
             >
               <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
-              <p className="text-[10px] uppercase tracking-widest text-white/40 group-hover:text-brand font-black mb-1 transition-colors relative z-10">Upgrade Tier</p>
+              <div className="flex justify-between items-center mb-1 relative z-10">
+                <p className="text-[10px] uppercase tracking-widest text-white/40 group-hover:text-brand font-black transition-colors">Upgrade Tier</p>
+                <span className="text-[9px] font-black text-brand bg-brand/10 px-1.5 py-0.5 rounded border border-brand/20">200 NXTP</span>
+              </div>
               <div className="flex items-center justify-between relative z-10">
                 <span className="text-sm font-semibold text-white group-hover:text-brand transition-colors">Get Verified</span>
                 <div className="w-5 h-5 border border-white/20 rounded-full flex items-center justify-center text-white/40 group-hover:border-brand group-hover:text-brand transition-colors text-[10px] font-bold">
@@ -163,13 +166,13 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
 
               <div className="bg-white/5 border border-white/10 rounded-2xl p-4 mb-6">
                 <p className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-1">Upgrade Cost</p>
-                <p className="text-2xl font-black text-brand tracking-tighter">500 NXTP</p>
+                <p className="text-2xl font-black text-brand tracking-tighter">200 NXTP</p>
               </div>
 
               <div className="space-y-3">
                 <button 
                   onClick={handleUpgrade}
-                  disabled={upgrading || (profile?.points || 0) < 500}
+                  disabled={upgrading || (profile?.points || 0) < 200}
                   className="w-full bg-brand text-black font-black text-xs uppercase tracking-widest py-4 rounded-xl hover:shadow-brand transition-all active:scale-95 disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-2"
                 >
                   {upgrading ? (
