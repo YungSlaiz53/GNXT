@@ -25,7 +25,11 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
   }
 
   if (!user) {
-    return null; // Will redirect via useEffect
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-black text-white">
+        Redirecting to login…
+      </div>
+    );
   }
 
   return <>{children}</>;

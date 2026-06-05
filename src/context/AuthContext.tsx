@@ -6,7 +6,8 @@ import {
   signOut,
   User,
   Auth,
-  createUserWithEmailAndPassword
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword
 } from 'firebase/auth';
 import { initFirebase, getFirebaseAuth, getFirebaseDb } from '../lib/firebase';
 import { doc, getDoc, setDoc, onSnapshot, serverTimestamp, Firestore, updateDoc, increment, collection, query, where, getDocs, limit } from 'firebase/firestore';
@@ -19,6 +20,7 @@ interface AuthContextType {
   isFirebaseReady: boolean;
   dbError: string | null;
   loginWithGoogle: () => Promise<void>;
+  loginWithEmail: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -44,6 +46,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // onAuthStateChanged will update state
   };
 
+  const loginWithEmail = async (email: string, password: string) => {
+    if (!authInstance) {
+      throw new Error('Firebase Auth not initialized');
+    }
+    await signInWithEmailAndPassword(authInstance, email, password);
+    // onAuthStateChanged will update state
+  };
+
   // Initialise Firebase app and acquire auth/db instances
   useEffect(() => {
     const init = async () => {
@@ -57,11 +67,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setIsFirebaseReady(true);
         } else {
           console.error('Firebase auth or db not initialized');
+          setLoading(false);
         }
       } catch (e) {
         console.error('Firebase init error:', e);
-      } finally {
         setLoading(false);
+      } finally {
         // Clean any leftover mock data in local storage
         localStorage.removeItem('mock_profile');
       }
@@ -94,6 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             referrals: 0,
             referralCode: 'LOCAL-' + currentUser.uid.substring(0, 5).toUpperCase(),
             isVerified: false,
+            isAdmin: false,
             joinedAt: new Date(),
             lastLogin: new Date(),
             completedTasks: []
@@ -161,6 +173,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                   referrals: 0,
                   referralCode,
                   isVerified: false,
+                  isAdmin: false,
                   joinedAt: serverTimestamp(),
                   lastLogin: serverTimestamp(),
                   completedTasks: []
@@ -264,6 +277,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       referrals: 0,
       referralCode,
       isVerified: false,
+      isAdmin: false,
       joinedAt: serverTimestamp(),
       lastLogin: serverTimestamp(),
       completedTasks: []

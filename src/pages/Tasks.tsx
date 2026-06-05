@@ -8,6 +8,10 @@ import { getFirebaseDb } from '../lib/firebase';
 const tasks = [
   { id: 'follow-twitter', title: 'Follow NEXT.AI on X', reward: 10, icon: Twitter, bColor: 'bg-blue-500/10', iColor: 'text-blue-400', link: 'https://twitter.com/nextai', description: 'Join our community on X for the latest protocol updates.' },
   { id: 'join-telegram', title: 'Join Official Telegram', reward: 15, icon: MessageCircle, bColor: 'bg-emerald-500/10', iColor: 'text-emerald-400', link: 'https://t.me/nextai', description: 'Engage with other contributors in our secure neural channel.' },
+  { id: 'follow-wnxt', title: 'Follow WNXT (Official)', reward: 20, icon: Twitter, bColor: 'bg-cyan-500/10', iColor: 'text-cyan-400', link: 'https://x.com/G_WNXT', description: 'Follow our official WNXT handle on X to stay updated on node and protocol developments.' },
+  { id: 'follow-gimbalabs', title: 'Follow Gimbalabs (Partners)', reward: 15, icon: Twitter, bColor: 'bg-indigo-500/10', iColor: 'text-indigo-400', link: 'https://x.com/gimbalabs', description: 'Connect with Gimbalabs on X, our core partner building decentralized APIs and learning spaces.' },
+  { id: 'follow-cardanocf', title: 'Follow Cardano Foundation', reward: 15, icon: Twitter, bColor: 'bg-sky-500/10', iColor: 'text-sky-400', link: 'https://x.com/Cardano_CF', description: 'Follow the Cardano Foundation on X, backing the growth and adoption of Cardano ecosystem.' },
+  { id: 'follow-ceo', title: 'Follow CEO on X', reward: 20, icon: Twitter, bColor: 'bg-amber-500/10', iColor: 'text-amber-400', link: 'https://x.com/ogleksb', description: 'Follow the official X profile of the NEXT.AI CEO for insider insights, announcements, and vision.' },
   { id: 'watch-ama', title: 'Watch Protocol AMA', reward: 50, icon: Youtube, bColor: 'bg-red-500/10', iColor: 'text-red-400', locked: true, description: 'Unlock this mission by completing 3 research surveys.' },
 ];
 
