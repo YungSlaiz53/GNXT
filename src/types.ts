@@ -11,6 +11,7 @@ export interface UserProfile {
   joinedAt: any;
   lastLogin: any;
   completedTasks?: string[];
+  isAdmin?: boolean;
 }
 
 export interface Survey {

@@ -23,8 +23,11 @@ import Referrals from './pages/Referrals';
 import Leaderboard from './pages/Leaderboard';
 import Profile from './pages/Profile';
 import Auth from './pages/Auth';
+import Admin from './pages/Admin';
+import Login from "./pages/Login";
 
 import ProtectedRoute from './components/ProtectedRoute';
+import AdminRoute from './components/AdminRoute';
 
 export default function App() {
   useEffect(() => {
@@ -44,7 +47,7 @@ export default function App() {
       <AuthProvider>
         <Router>
           <Routes>
-  <Route path="/auth" element={<Auth />} />
+            <Route path="/auth" element={<Login />} />
             <Route path="/signup" element={<Auth />} />
             
             {/* Protected Routes */}
@@ -77,6 +80,11 @@ export default function App() {
               <ProtectedRoute>
                 <Layout><Profile /></Layout>
               </ProtectedRoute>
+            } />
+            <Route path="/admin" element={
+              <AdminRoute>
+                <Layout><Admin /></Layout>
+              </AdminRoute>
             } />
 
             {/* Fallback */}

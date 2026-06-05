@@ -1,15 +1,7 @@
 import { Link, useLocation } from 'react-router-dom';
-import { 
-  LayoutDashboard, 
-  ClipboardList, 
-  Users, 
-  Trophy, 
-  User, 
-  Zap,
-  X
-} from 'lucide-react';
+import { LayoutDashboard, ClipboardList, Users, Trophy, User, Zap, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
 import { useState } from 'react';
 import { doc, updateDoc, increment } from 'firebase/firestore';
@@ -83,7 +75,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
         </div>
 
         <nav className="flex-1 px-4 space-y-2">
-          {navItems.map((item) => {
+            {navItems.map((item) => {
             const isActive = location.pathname === item.path;
             const Icon = item.icon;
             
