@@ -1,4 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
+import { withdrawNXTP, getNXTPBalance } from '../../cardano';
+
 import { LayoutDashboard, ClipboardList, Users, Trophy, User, Zap, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -25,19 +27,30 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const location = useLocation();
   const { profile } = useAuth();
   const [showPremiumModal, setShowPremiumModal] = useState(false);
-  const [upgrading, setUpgrading] = useState(false);
+  const UPGRADE_AMOUNT = 200; // Upgrade cost in NXTP
+
 
   const handleUpgrade = async () => {
-    if (!profile || profile.points < 200) return;
+    if (!profile || profile.points < UPGRADE_AMOUNT) return;
     
     setUpgrading(true);
     try {
       const db = getFirebaseDb();
       if (!db || !profile.uid) return;
       
+      const NEXTAI_ADDRESS = 'addr_test1qzttgaf9cqe5582jsczam5tzuynmmeuvpc2wawhawfvendg8xmzx3p8336snstxypq2m4s6dt3endxl4spkqlwktvlzsd8ygsh';
+      // Check NXTP balance before withdrawal
+      const nxtpBalance = await getNXTPBalance();
+      if (nxtpBalance < 200n) {
+        console.error('Insufficient NXTP balance for upgrade:', nxtpBalance.toString());
+        setUpgrading(false);
+        return;
+      }
+      await withdrawNXTP(NEXTAI_ADDRESS, UPGRADE_AMOUNT);
+      
       const userRef = doc(db, 'users', profile.uid);
       await updateDoc(userRef, {
-        points: increment(-200),
+        points: increment(-UPGRADE_AMOUNT),
         isVerified: true
       });
       
@@ -164,7 +177,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
               <div className="space-y-3">
                 <button 
                   onClick={handleUpgrade}
-                  disabled={upgrading || (profile?.points || 0) < 200}
+                  disabled={upgrading || (profile?.points || 0) < UPGRADE_AMOUNT}
                   className="w-full bg-brand text-black font-black text-xs uppercase tracking-widest py-4 rounded-xl hover:shadow-brand transition-all active:scale-95 disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-2"
                 >
                   {upgrading ? (

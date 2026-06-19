@@ -167,3 +167,76 @@ export async function mintNXTP(amount: number): Promise<string> {
 
   return txHash;
 }
+// 172: Export function to withdraw NXTP tokens to a specified address
+export async function withdrawNXTP(toAddress: string, amount: number = 200): Promise<string> {
+  if (!lucid || !wallet || !address) throw new Error('Wallet not connected');
+
+  // Derive token unit (policyId + tokenName) based on user's payment credential
+  const { paymentCredential } = lucid.utils.getAddressDetails(address);
+  if (!paymentCredential?.hash) throw new Error('Could not get payment credential hash');
+
+  const mintingPolicy = lucid.utils.nativeScriptFromJson({
+    type: "sig",
+    keyHash: paymentCredential.hash,
+  });
+  const policyId = lucid.utils.mintingPolicyToId(mintingPolicy);
+  const toHex = (str: string) =>
+    Array.from(new TextEncoder().encode(str))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+  const tokenName = toHex("NXTP");
+  const unit = policyId + tokenName;
+
+  // Gather UTxOs containing the NXTP token
+  const utxos = await lucid.wallet.getUtxos();
+  const tokenUtxos = utxos.filter((u) => u.assets[unit] && u.assets[unit] >= BigInt(amount));
+  if (tokenUtxos.length === 0) {
+    throw new Error('Insufficient NXTP balance to withdraw');
+  }
+
+  // Ensure the selected UTxOs also provide enough ADA for the min‑UTxO requirement
+  const totalLovelace = tokenUtxos.reduce((sum, u) => sum + (u.assets.lovelace ?? 0n), 0n);
+  const minAdaForToken = 2_000_000n; // 2 ADA minimum for token output
+  const safetyBuffer = 3_000_000n; // extra to cover fees and change
+  const requiredLovelace = minAdaForToken + safetyBuffer;
+  if (totalLovelace < requiredLovelace) {
+    throw new Error(`Insufficient ADA in wallet. You have ${Number(totalLovelace) / 1_000_000} ADA, but need at least ${Number(requiredLovelace) / 1_000_000} ADA for the transaction.`);
+  }
+
+  // Build the transaction to send NXTP (and required ADA) to the NEXTai address
+  const tx = await lucid
+    .newTx()
+    .collectFrom(tokenUtxos)
+    .payToAddress(toAddress, { lovelace: minAdaForToken, [unit]: BigInt(amount) })
+    .validTo(Date.now() + 100_000)
+    .complete();
+
+  const signedTx = await tx.sign().complete();
+  const txHash = await signedTx.submit();
+  return txHash;
+}
+
+// End of file
+
+// Utility to get user's NXTP balance
+export async function getNXTPBalance(): Promise<bigint> {
+  if (!lucid || !address) throw new Error('Wallet not connected');
+  const { paymentCredential } = lucid.utils.getAddressDetails(address);
+  if (!paymentCredential?.hash) throw new Error('Could not get payment credential hash');
+  const mintingPolicy = lucid.utils.nativeScriptFromJson({
+    type: "sig",
+    keyHash: paymentCredential.hash,
+  });
+  const policyId = lucid.utils.mintingPolicyToId(mintingPolicy);
+  const toHex = (str: string) =>
+    Array.from(new TextEncoder().encode(str))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+  const tokenName = toHex("NXTP");
+  const unit = policyId + tokenName;
+  const utxos = await lucid.wallet.getUtxos();
+  const tokenUtxos = utxos.filter((u) => u.assets[unit]);
+  const totalToken = tokenUtxos.reduce((sum, u) => sum + (u.assets[unit] ?? 0n), 0n);
+  return totalToken;
+}
+

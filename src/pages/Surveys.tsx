@@ -11,6 +11,7 @@ import { seedSurveys } from '../lib/seedSurveys';
 export default function Surveys() {
   const { user, profile } = useAuth();
   const [surveys, setSurveys] = useState<Survey[]>([]);
+  const [completedSurveys, setCompletedSurveys] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [activeSurvey, setActiveSurvey] = useState<Survey | null>(null);
   const [currentQuestion, setCurrentQuestion] = useState(0);
@@ -45,6 +46,27 @@ export default function Surveys() {
     fetchSurveys();
   }, []);
 
+  // Load surveys already answered by the user
+  useEffect(() => {
+    const loadCompleted = async () => {
+      if (!user) return;
+      const db = getFirebaseDb();
+      if (!db) return;
+      try {
+        const ansQuery = query(collection(db, 'user_answers'), where('userId', '==', user.uid));
+        const ansSnap = await getDocs(ansQuery);
+        const completed = new Set<string>();
+        ansSnap.forEach(doc => {
+          const data = doc.data() as any;
+          if (data.surveyId) completed.add(data.surveyId);
+        });
+        setCompletedSurveys(completed);
+      } catch (e) {
+        console.error('Error loading completed surveys:', e);
+      }
+    };
+    loadCompleted();
+  }, [user]);
   const handleAnswer = (questionId: string, answer: any) => {
     setAnswers(prev => ({ ...prev, [questionId]: answer }));
     
@@ -77,6 +99,9 @@ export default function Surveys() {
       await updateDoc(userRef, {
         points: increment(activeSurvey.reward)
       });
+
+      // 3. Mark survey as completed locally to prevent re‑open
+      setCompletedSurveys(prev => new Set(prev).add(activeSurvey.id));
 
       setCompleted(true);
       setTimeout(() => {
@@ -245,9 +270,10 @@ export default function Surveys() {
               </div>
               <button 
                 onClick={() => setActiveSurvey(survey)}
-                className="bg-white/5 hover:bg-brand text-white hover:text-black px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-xs transition-all border border-white/10 hover:border-brand hover:shadow-brand active:scale-95"
+                disabled={completedSurveys.has(survey.id)}
+                className={`bg-white/5 hover:bg-brand text-white hover:text-black px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-xs transition-all border border-white/10 hover:border-brand hover:shadow-brand active:scale-95 ${completedSurveys.has(survey.id) ? 'opacity-40 cursor-not-allowed' : ''}`}
               >
-                Launch
+                {completedSurveys.has(survey.id) ? 'Completed' : 'Launch'}
               </button>
             </div>
             
