@@ -25,6 +25,7 @@ import Profile from './pages/Profile';
 import Auth from './pages/Auth';
 import Admin from './pages/Admin';
 import Login from "./pages/Login";
+import About from './pages/About';
 
 import ProtectedRoute from './components/ProtectedRoute';
 import AdminRoute from './components/AdminRoute';
@@ -85,6 +86,11 @@ export default function App() {
               <AdminRoute>
                 <Layout><Admin /></Layout>
               </AdminRoute>
+            } />
+            <Route path="/about" element={
+              <ProtectedRoute>
+                <Layout><About /></Layout>
+              </ProtectedRoute>
             } />
 
             {/* Fallback */}

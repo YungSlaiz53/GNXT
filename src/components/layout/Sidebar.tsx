@@ -1,7 +1,7 @@
 import { Link, useLocation } from 'react-router-dom';
 import { withdrawNXTP, getNXTPBalance } from '../../cardano';
 
-import { LayoutDashboard, ClipboardList, Users, Trophy, User, Zap, X } from 'lucide-react';
+import { LayoutDashboard, ClipboardList, Users, Trophy, User, Zap, X, FileText } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
@@ -16,6 +16,7 @@ const navItems = [
   { name: 'Referrals', path: '/referrals', icon: Users },
   { name: 'Leaderboard', path: '/leaderboard', icon: Trophy },
   { name: 'Profile', path: '/profile', icon: User },
+  { name: 'Whitepaper', path: '/about', icon: FileText },
 ];
 
 interface SidebarProps {
