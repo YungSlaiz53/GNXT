@@ -2,11 +2,10 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ClipboardList, Clock, Star, ArrowRight, CheckCircle2, Image as ImageIcon, Mic, Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { collection, getDocs, doc, setDoc, updateDoc, increment, serverTimestamp, query, orderBy } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, updateDoc, increment, serverTimestamp, arrayUnion } from 'firebase/firestore';
 import { getFirebaseDb } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { Survey, SurveyQuestion } from '../types';
-import { seedSurveys } from '../lib/seedSurveys';
 
 export default function Surveys() {
   const { user, profile } = useAuth();
@@ -25,15 +24,17 @@ export default function Surveys() {
       if (!db) return;
 
       try {
-        // Ensure database is seeded
-        await seedSurveys();
-        
-        const q = query(collection(db, 'surveys'), orderBy('createdAt', 'desc'));
-        const snapshot = await getDocs(q);
-        const fetchedSurveys = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        })) as Survey[];
+        // Surveys are managed by admins via the Admin panel — just read them
+        const snapshot = await getDocs(collection(db, 'surveys'));
+        // Deduplicate by document ID (guards against any pre-existing duplicates)
+        const seen = new Set<string>();
+        const fetchedSurveys = snapshot.docs
+          .map(doc => ({ id: doc.id, ...doc.data() }) as Survey)
+          .filter(s => {
+            if (seen.has(s.id)) return false;
+            seen.add(s.id);
+            return true;
+          });
         
         setSurveys(fetchedSurveys);
       } catch (e) {
@@ -46,27 +47,12 @@ export default function Surveys() {
     fetchSurveys();
   }, []);
 
-  // Load surveys already answered by the user
+  // Initialise completed surveys from profile — no extra query needed, persists across refreshes
   useEffect(() => {
-    const loadCompleted = async () => {
-      if (!user) return;
-      const db = getFirebaseDb();
-      if (!db) return;
-      try {
-        const ansQuery = query(collection(db, 'user_answers'), where('userId', '==', user.uid));
-        const ansSnap = await getDocs(ansQuery);
-        const completed = new Set<string>();
-        ansSnap.forEach(doc => {
-          const data = doc.data() as any;
-          if (data.surveyId) completed.add(data.surveyId);
-        });
-        setCompletedSurveys(completed);
-      } catch (e) {
-        console.error('Error loading completed surveys:', e);
-      }
-    };
-    loadCompleted();
-  }, [user]);
+    if (profile?.completedSurveys) {
+      setCompletedSurveys(new Set(profile.completedSurveys));
+    }
+  }, [profile]);
   const handleAnswer = (questionId: string, answer: any) => {
     setAnswers(prev => ({ ...prev, [questionId]: answer }));
     
@@ -94,10 +80,11 @@ export default function Surveys() {
         completedAt: serverTimestamp()
       });
 
-      // 2. Update user points
+      // 2. Update user points + persist completed survey ID to user document
       const userRef = doc(db, 'users', user.uid);
       await updateDoc(userRef, {
-        points: increment(activeSurvey.reward)
+        points: increment(activeSurvey.reward),
+        completedSurveys: arrayUnion(activeSurvey.id)
       });
 
       // 3. Mark survey as completed locally to prevent re‑open

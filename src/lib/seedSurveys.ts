@@ -1,4 +1,4 @@
-import { collection, addDoc, getDocs, serverTimestamp, query, limit } from 'firebase/firestore';
+import { collection, doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { getFirebaseDb } from './firebase';
 import { Survey } from '../types';
 
@@ -6,14 +6,7 @@ export async function seedSurveys() {
   const db = getFirebaseDb();
   if (!db) return;
 
-  // Check if surveys already exist to avoid duplicates
   const surveysCol = collection(db, 'surveys');
-  const snapshot = await getDocs(query(surveysCol, limit(1)));
-  
-  if (!snapshot.empty) {
-    console.log('Surveys already seeded.');
-    return;
-  }
 
   const sampleSurveys: Omit<Survey, 'id'>[] = [
     {
@@ -88,7 +81,10 @@ export async function seedSurveys() {
 
   console.log('Seeding surveys...');
   for (const survey of sampleSurveys) {
-    await addDoc(surveysCol, survey);
+    // Use a deterministic ID derived from the title so re-runs are idempotent
+    const slug = survey.title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const surveyRef = doc(surveysCol, slug);
+    await setDoc(surveyRef, survey, { merge: true });
   }
   console.log('Seeding complete!');
 }

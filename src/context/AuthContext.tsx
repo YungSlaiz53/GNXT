@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { 
   onAuthStateChanged, 
-  signInWithPopup, 
+  signInWithPopup, signInWithRedirect, 
   GoogleAuthProvider, 
   signOut,
   User,
@@ -42,7 +42,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     const provider = new GoogleAuthProvider();
     provider.addScope('email');
-    await signInWithPopup(authInstance, provider);
+    try {
+      await signInWithPopup(authInstance, provider);
+    } catch (e: any) {
+      // Fallback for popup blocked/closed scenarios (common in production)
+      if (e.code === 'auth/popup-closed-by-user' || e.code === 'auth/popup-blocked') {
+        await signInWithRedirect(authInstance, provider);
+      } else {
+        // Re‑throw other errors for upstream handling
+        throw e;
+      }
+    }
     // onAuthStateChanged will update state
   };
 

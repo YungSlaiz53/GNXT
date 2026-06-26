@@ -17,7 +17,7 @@ import {
   UserMinus,
   ListCollapse
 } from 'lucide-react';
-import { collection, getDocs, doc, updateDoc, addDoc, deleteDoc, query, orderBy, serverTimestamp } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, setDoc, deleteDoc, query, orderBy, serverTimestamp } from 'firebase/firestore';
 import { getFirebaseDb } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { UserProfile, Survey, SurveyQuestion } from '../types';
@@ -52,6 +52,12 @@ export default function Admin() {
   // Points Editing State
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editPointsValue, setEditPointsValue] = useState<number>(0);
+
+  // Inline delete confirmation state
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  // Survey publish loading state
+  const [isSubmittingSurvey, setIsSubmittingSurvey] = useState(false);
 
   // Check Admin Role or local bypass
   const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
@@ -160,23 +166,30 @@ export default function Admin() {
 
   const handleCreateSurvey = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingSurvey) return; // guard against double-submit
     const db = getFirebaseDb();
     if (!db) return;
 
     // Validate questions
     if (newQuestions.some(q => q.text.trim() === '')) {
-      alert('Please fill out all question texts.');
+      setError('Please fill out all question texts before publishing.');
       return;
     }
 
+    setIsSubmittingSurvey(true);
+    setError(null);
     try {
       const surveysCol = collection(db, 'surveys');
       const questionsWithIds: SurveyQuestion[] = newQuestions.map((q, i) => ({
         id: `q${i + 1}`,
         text: q.text,
         type: q.type,
-        options: q.type === 'multiple-choice' ? q.options : undefined
+        ...(q.type === 'multiple-choice' && { options: q.options })
       }));
+
+      // Use a slug-based deterministic ID so repeated submits don't create duplicates
+      const slug = newSurveyTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      const surveyRef = doc(surveysCol, slug);
 
       const newSurvey = {
         title: newSurveyTitle,
@@ -187,35 +200,40 @@ export default function Admin() {
         questions: questionsWithIds
       };
 
-      const docRef = await addDoc(surveysCol, newSurvey);
-      
-      // Update local state
-      setSurveysList(prev => [{ id: docRef.id, ...newSurvey } as Survey, ...prev]);
+      await setDoc(surveyRef, newSurvey);
 
-      // Reset Form
+      // Update local state (replace if exists, prepend if new)
+      setSurveysList(prev => {
+        const exists = prev.find(s => s.id === slug);
+        if (exists) return prev.map(s => s.id === slug ? { id: slug, ...newSurvey } as Survey : s);
+        return [{ id: slug, ...newSurvey } as Survey, ...prev];
+      });
+
+      // Reset form
       setNewSurveyTitle('');
       setNewSurveyDesc('');
       setNewSurveyReward(25);
       setNewQuestions([{ text: '', type: 'multiple-choice', options: ['Yes', 'No'] }]);
-      alert('Survey created and published successfully!');
-    } catch (e) {
+    } catch (e: any) {
       console.error('Failed to create survey:', e);
-      alert('Error creating survey.');
+      setError(`Publish failed: ${e.message}`);
+    } finally {
+      setIsSubmittingSurvey(false);
     }
   };
 
   const handleDeleteSurvey = async (surveyId: string) => {
-    if (!confirm('Are you sure you want to delete this survey? This cannot be undone.')) return;
-    
     const db = getFirebaseDb();
     if (!db) return;
 
     try {
       await deleteDoc(doc(db, 'surveys', surveyId));
       setSurveysList(prev => prev.filter(s => s.id !== surveyId));
-    } catch (e) {
+      setConfirmDeleteId(null);
+    } catch (e: any) {
       console.error('Failed to delete survey:', e);
-      alert('Error deleting survey.');
+      setConfirmDeleteId(null);
+      setError(`Delete failed: ${e.message}`);
     }
   };
 
@@ -697,9 +715,22 @@ export default function Admin() {
 
                     <button
                       type="submit"
-                      className="w-full bg-brand text-black hover:shadow-brand font-black uppercase tracking-wider py-3.5 rounded-xl text-xs transition-all mt-4"
+                      disabled={isSubmittingSurvey}
+                      className={`w-full font-black uppercase tracking-wider py-3.5 rounded-xl text-xs transition-all mt-4 flex items-center justify-center gap-2 ${
+                        isSubmittingSurvey
+                          ? 'bg-brand/40 text-black/50 cursor-not-allowed'
+                          : 'bg-brand text-black hover:shadow-brand'
+                      }`}
                     >
-                      Publish to Network
+                      {isSubmittingSurvey ? (
+                        <>
+                          <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                          </svg>
+                          Publishing...
+                        </>
+                      ) : 'Publish to Network'}
                     </button>
                   </form>
                 </div>
@@ -736,12 +767,33 @@ export default function Admin() {
                             </div>
                           </div>
 
-                          <button
-                            onClick={() => handleDeleteSurvey(survey.id)}
-                            className="bg-red-500/10 border border-red-500/20 hover:bg-red-500 text-red-400 hover:text-black p-2.5 rounded-xl transition-all self-end sm:self-center"
-                          >
-                            <Trash2 size={16} />
-                          </button>
+                          {confirmDeleteId === survey.id ? (
+                            <div className="flex items-center gap-2 self-end sm:self-center">
+                              <span className="text-[9px] text-red-400 font-black uppercase tracking-wider">Confirm?</span>
+                              <button
+                                onClick={() => handleDeleteSurvey(survey.id)}
+                                className="bg-red-500 text-white p-2.5 rounded-xl transition-all hover:bg-red-600"
+                                title="Confirm delete"
+                              >
+                                <CheckCircle2 size={16} />
+                              </button>
+                              <button
+                                onClick={() => setConfirmDeleteId(null)}
+                                className="bg-white/10 text-white/60 p-2.5 rounded-xl transition-all hover:bg-white/20"
+                                title="Cancel"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setConfirmDeleteId(survey.id)}
+                              className="bg-red-500/10 border border-red-500/20 hover:bg-red-500 text-red-400 hover:text-black p-2.5 rounded-xl transition-all self-end sm:self-center"
+                              title="Delete survey"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          )}
                         </div>
                       ))
                     )}

@@ -1,0 +1,41 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper function to check if the current user is an admin
+    function isAdmin() {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+    }
+
+    // Users collection
+    match /users/{userId} {
+      // Users can read and write their own profile
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      // Allow searching users to resolve referral counts
+      allow list: if request.auth != null;
+      // Admins have full access to all user profiles
+      allow read, write: if isAdmin();
+    }
+
+    // Surveys collection
+    match /surveys/{surveyId} {
+      // Anyone logged in can view the list of surveys
+      allow read: if request.auth != null;
+      // Only admins can create, modify, or delete surveys
+      allow write: if isAdmin();
+    }
+
+    // User Answers collection – stores each completed survey
+    match /user_answers/{answerId} {
+      // Regular users can create a new answer for themselves
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      // Regular users can read only their own answer (optional)
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      // Admins can read any answer and delete any answer
+      allow read, delete: if isAdmin();
+      // No updates allowed – keep answers immutable
+    }
+  }
+}
