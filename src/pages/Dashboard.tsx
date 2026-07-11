@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 import { ArrowUpRight, Zap, Twitter, MessageCircle, Youtube, CheckCircle2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../context/AuthContext';
-import { doc, updateDoc, arrayUnion, increment, collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
+import { doc, updateDoc, arrayUnion, increment, collection, query, orderBy, limit, getDocs, where, getCountFromServer } from 'firebase/firestore';
 import { getFirebaseDb } from '../lib/firebase';
 import { useNavigate } from 'react-router-dom';
 import { Survey } from '../types';
@@ -12,6 +12,7 @@ export default function Dashboard() {
   const { profile } = useAuth();
   const navigate = useNavigate();
   const [featuredSurvey, setFeaturedSurvey] = useState<Survey | null>(null);
+  const [rank, setRank] = useState<number | null>(null);
 
   useEffect(() => {
     const fetchFeatured = async () => {
@@ -25,12 +26,33 @@ export default function Dashboard() {
     };
     fetchFeatured();
   }, []);
+
+  useEffect(() => {
+    const fetchRank = async () => {
+      if (!profile) return;
+      const db = getFirebaseDb();
+      if (!db) return;
+
+      try {
+        const userPoints = profile.points || 0;
+        const q = query(
+          collection(db, 'users'),
+          where('points', '>', userPoints)
+        );
+        const snapshot = await getCountFromServer(q);
+        setRank(snapshot.data().count + 1);
+      } catch (error) {
+        console.error('Error fetching user rank:', error);
+      }
+    };
+    fetchRank();
+  }, [profile?.points, profile?.uid]);
   
   const stats = [
     { label: 'Total Points', value: profile?.points?.toLocaleString() || '0', unit: 'NXTP', color: 'text-brand' },
-    { label: 'Rank', value: '#142', unit: '+12 ↑', color: 'text-white' },
-    { label: 'Daily Streak', value: '8 Days', unit: '🔥', color: 'text-white' },
-    { label: 'Referrals', value: profile?.referrals?.toString() || '0', unit: '+480 Pts', color: 'text-white' },
+    { label: 'Rank', value: rank !== null ? `#${rank}` : '...', unit: 'GLOBAL', color: 'text-white' },
+    { label: 'Daily Streak', value: `${profile?.streakCount || 1} Days`, unit: '🔥', color: 'text-white' },
+    { label: 'Referrals', value: profile?.referrals?.toString() || '0', unit: `+${(profile?.referrals || 0) * 20} PTS`, color: 'text-white' },
   ];
 
   const handleTaskClick = async (taskId: string, reward: number, link?: string) => {

@@ -336,7 +336,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, isFirebaseReady, dbError, loginWithGoogle, signUp, logout }}>
+    <AuthContext.Provider value={{ user, profile, loading, isFirebaseReady, dbError, loginWithGoogle, loginWithEmail, signUp, logout }}>
       {children}
     </AuthContext.Provider>
   );

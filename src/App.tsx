@@ -11,7 +11,7 @@ import {
 import { Layout } from './components/layout/Layout';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { useEffect } from 'react';
-import { seedSurveys } from './lib/seedSurveys';
+
 
 const queryClient = new QueryClient();
 
@@ -40,7 +40,7 @@ export default function App() {
       console.log('Captured referral code:', ref);
     }
     
-    seedSurveys();
+
   }, []);
 
   return (

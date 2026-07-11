@@ -13,6 +13,8 @@ export interface UserProfile {
   completedTasks?: string[];
   completedSurveys?: string[];
   isAdmin?: boolean;
+  streakCount?: number;
+  lastStreakDate?: any;
 }
 
 export interface Survey {
