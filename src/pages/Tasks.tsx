@@ -19,9 +19,13 @@ export default function Tasks() {
   const { profile } = useAuth();
 
   const handleTaskClick = async (taskId: string, reward: number, link?: string) => {
-    if (!profile || profile.completedTasks?.includes(taskId)) return;
+    if (!profile) return;
 
+    // Open the external link regardless of completion status
     if (link) window.open(link, '_blank');
+
+    // If already completed, do not award points
+    if (profile.completedTasks?.includes(taskId)) return;
 
     const db = getFirebaseDb();
     if (db && profile.uid) {
@@ -83,11 +87,19 @@ export default function Tasks() {
                     <span>LOCKED</span>
                   </button>
                 ) : isCompleted ? (
-                  <div className="w-full h-14 bg-brand/10 border border-brand/20 rounded-2xl flex items-center justify-center space-x-2 text-brand font-black uppercase text-xs">
-                    <CheckCircle2 size={14} />
-                    <span>VERIFIED</span>
-                  </div>
-                ) : (
+          <div className="flex items-center gap-2">
+            <div className="flex items-center justify-center h-14 px-4 bg-brand/10 border border-brand/20 rounded-2xl text-brand font-black uppercase text-xs">
+              <CheckCircle2 size={14} />
+              <span className="ml-1">VERIFIED</span>
+            </div>
+            <button
+              onClick={() => window.open(task.link, '_blank')}
+              className="flex items-center justify-center h-14 px-4 bg-brand/20 border border-brand/30 rounded-2xl text-brand font-black uppercase text-xs hover:shadow-brand transition-all"
+            >
+              <ArrowUpRight size={14} strokeWidth={3} />
+            </button>
+          </div>
+        ) : (
                   <button 
                     onClick={() => handleTaskClick(task.id, task.reward, task.link)}
                     className="w-full h-14 bg-brand text-black rounded-2xl flex items-center justify-center space-x-2 font-black uppercase text-xs hover:shadow-brand transition-all active:scale-[0.98]"

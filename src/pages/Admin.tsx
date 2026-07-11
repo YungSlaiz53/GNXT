@@ -20,7 +20,11 @@ import {
 import { collection, getDocs, doc, updateDoc, setDoc, deleteDoc, query, orderBy, serverTimestamp } from 'firebase/firestore';
 import { getFirebaseDb } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
-import { UserProfile, Survey, SurveyQuestion } from '../types';
+import { saveAs } from 'file-saver';
+
+
+ 
+
 
 type TabType = 'dashboard' | 'users' | 'surveys' | 'submissions';
 
@@ -93,6 +97,7 @@ export default function Admin() {
         ...doc.data()
       }));
       setSubmissionsList(fetchedSubmissions);
+      console.log('Fetched submissions count:', fetchedSubmissions.length);
     } catch (e: any) {
       console.error('Error fetching admin data:', e);
       setError(e.message || 'Failed to load administration data. Check Firestore rules.');
@@ -248,6 +253,37 @@ export default function Admin() {
     return survey ? survey.title : surveyId;
   };
 
+  // CSV Export for Submissions (moved inside component to access state)
+  const downloadCSV = () => {
+    try {
+      if (!submissionsList.length) return;
+      const allQuestionIds = new Set<string>();
+      submissionsList.forEach((sub) => {
+        Object.keys(sub.answers || {}).forEach((qid) => allQuestionIds.add(qid));
+      });
+      const questionHeaders = Array.from(allQuestionIds);
+      const header = ['Survey Title', 'User Email', ...questionHeaders];
+      const rows: string[] = [];
+      rows.push(header.map((h) => `"${h}"`).join(','));
+      submissionsList.forEach((sub) => {
+        const surveyTitle = getSurveyTitle(sub.surveyId);
+        const userEmail = getUserEmail(sub.userId);
+        const answers = sub.answers || {};
+        const row = [surveyTitle, userEmail];
+        questionHeaders.forEach((qid) => {
+          const ans = answers[qid];
+          row.push(ans !== undefined ? `"${String(ans).replace(/"/g, '""')}"` : '');
+        });
+        rows.push(row.map((c) => `"${c}"`).join(','));
+      });
+      const csvContent = rows.join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const filename = `survey_submissions_${new Date().toISOString().split('T')[0]}.csv`;
+      saveAs(blob, filename);
+    } catch (e) {
+      console.error('CSV export error:', e);
+    }
+  };
   // Render Access Denied
   if (!hasAdminAccess) {
     return (
@@ -812,7 +848,16 @@ export default function Admin() {
             >
               <h3 className="text-xl font-black uppercase italic tracking-tight text-white flex items-center gap-2">
                 <ListCollapse size={18} className="text-brand" />
-                Raw Submission Registry ({submissionsList.length})
+                Raw Submission Registry ({submissionsList.length}) <motion.button
+  type="button"
+  onClick={downloadCSV}
+  className="ml-4 bg-brand hover:shadow-brand text-black py-1 px-3 rounded-md text-xs font-black uppercase"
+  whileHover={{ scale: 1.05 }}
+  whileTap={{ scale: 0.95 }}
+  transition={{ duration: 0.1 }}
+>
+  Download CSV
+</motion.button>
               </h3>
 
               <div className="space-y-6">
