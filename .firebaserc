@@ -1,5 +1,7 @@
 {
   "projects": {
     "default": "nextai-99aa5"
-  }
+  },
+  "targets": {},
+  "etags": {}
 }
