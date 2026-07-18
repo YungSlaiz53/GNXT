@@ -13,6 +13,8 @@ export default function Profile() {
   const [address, setAddress] = useState<string | null>(cardanoAddress);
   const [claiming, setClaiming] = useState(false);
   const [claimSuccess, setClaimSuccess] = useState(false);
+  const [confirmingTx, setConfirmingTx] = useState(false);
+  const [countdown, setCountdown] = useState(25);
 
   const handleClaim = async () => {
     if (!profile || !address || (profile.points || 0) <= 0) return;
@@ -23,10 +25,6 @@ export default function Profile() {
     try {
       // 1. Perform real on-chain Minting via Cardano (Lucid)
       const claimAmount = profile.points;
-      
-      // Import dynamically to avoid circular dependencies if any, but since we are in a component, we can just import it at top.
-      // Wait, let's just use the top-level import (I will add it in the next step or it might already be imported if I just use connectWallet etc).
-      // Actually, I need to add `mintNXTP` to the import from '../cardano'. I'll assume it's imported for now, or I'll just fix it.
       
       // We need to import mintNXTP
       const { mintNXTP } = await import('../cardano');
@@ -42,16 +40,58 @@ export default function Profile() {
           points: 0 // Claim all points
         });
         
-        setClaimSuccess(true);
-        setTimeout(() => setClaimSuccess(false), 5000);
+        // Start confirmation countdown so the user knows to wait for block confirmation
+        setConfirmingTx(true);
+        setCountdown(25);
+        
+        const timer = setInterval(() => {
+          setCountdown((prev) => {
+            if (prev <= 1) {
+              clearInterval(timer);
+              setConfirmingTx(false);
+              setClaimSuccess(true);
+              setTimeout(() => setClaimSuccess(false), 5000);
+              fetchBalances();
+              return 0;
+            }
+            return prev - 1;
+          });
+        }, 1000);
       }
     } catch (error) {
       console.error('Claim failed:', error);
       alert(error instanceof Error ? error.message : 'Transaction failed or was rejected.');
+      setClaiming(false);
     } finally {
       setClaiming(false);
     }
   };
+
+  const [adaBalance, setAdaBalance] = useState<string | null>(null);
+  const [nxtpBalance, setNxtpBalance] = useState<string | null>(null);
+
+  const fetchBalances = async () => {
+    if (address) {
+      try {
+        const { getADABalance, getNXTPBalance } = await import('../cardano');
+        const ada = await getADABalance();
+        const nxtp = await getNXTPBalance();
+        setAdaBalance((Number(ada) / 1_000_000).toFixed(2));
+        setNxtpBalance(nxtp.toString());
+      } catch (e) {
+        console.error("Error fetching balances:", e);
+      }
+    } else {
+      setAdaBalance(null);
+      setNxtpBalance(null);
+    }
+  };
+
+  useEffect(() => {
+    fetchBalances();
+    const interval = setInterval(fetchBalances, 10000);
+    return () => clearInterval(interval);
+  }, [address]);
 
   // Sync wallet address from event listener to avoid setInterval
   useEffect(() => {
@@ -177,6 +217,12 @@ export default function Profile() {
                   </code>
                   <WalletConnect />
                 </div>
+                {address && (
+                  <div className="flex gap-4 mt-2 px-2 text-[10px] text-white/40 uppercase tracking-wider font-bold">
+                    <span>ADA Balance: <strong className="text-brand">{adaBalance !== null ? `${adaBalance} ADA` : 'Loading...'}</strong></span>
+                    <span>Wallet NXTP: <strong className="text-brand">{nxtpBalance !== null ? `${nxtpBalance} NXTP` : 'Loading...'}</strong></span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -192,18 +238,23 @@ export default function Profile() {
               
               <button 
                 onClick={handleClaim}
-                disabled={claiming || !address || (profile?.points || 0) <= 0}
+                disabled={claiming || confirmingTx || !address || (profile?.points || 0) <= 0}
                 className={cn(
                   "mt-6 w-full h-12 rounded-xl font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 transition-all",
                   claimSuccess 
                     ? "bg-emerald-500 text-white" 
-                    : (claiming ? "bg-white/10 text-white/40 cursor-wait" : "bg-brand text-black hover:shadow-brand active:scale-95 disabled:opacity-20 disabled:grayscale disabled:pointer-events-none")
+                    : (claiming || confirmingTx ? "bg-white/10 text-white/40 cursor-wait" : "bg-brand text-black hover:shadow-brand active:scale-95 disabled:opacity-20 disabled:grayscale disabled:pointer-events-none")
                 )}
               >
                 {claiming ? (
                   <>
                     <Loader2 size={16} className="animate-spin" />
                     Transmitting to Chain...
+                  </>
+                ) : confirmingTx ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    Confirming Block ({countdown}s)...
                   </>
                 ) : claimSuccess ? (
                   <>

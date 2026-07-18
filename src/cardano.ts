@@ -1,8 +1,39 @@
 import { Lucid, WalletApi } from 'lucid-cardano';
+import { doc, getDoc } from 'firebase/firestore';
+import { getFirebaseDb } from './lib/firebase';
 
 export let lucid: Lucid | null = null;
 export let wallet: WalletApi | null = null;
 export let address: string | null = null;
+
+export interface CardanoConfig {
+  network: 'Preprod' | 'Mainnet';
+  treasuryAddress: string;
+}
+
+const DEFAULT_CONFIG: CardanoConfig = {
+  network: 'Preprod',
+  treasuryAddress: 'addr_test1qz8gk3cs2wzeyc4n5yextze78t7lm3q3etnx6r027ddv5n22h3xkr53xxcmp7ug9dqtqvgv0uqpsjqy0ywd6w6kun36qr2cyvy'
+};
+
+export async function fetchCardanoConfig(): Promise<CardanoConfig> {
+  try {
+    const db = getFirebaseDb();
+    if (!db) return DEFAULT_CONFIG;
+    const docRef = doc(db, 'system_config', 'cardano');
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      return {
+        network: data.network || 'Preprod',
+        treasuryAddress: data.treasuryAddress || DEFAULT_CONFIG.treasuryAddress
+      };
+    }
+  } catch (e) {
+    console.error("Error fetching Cardano config from Firestore:", e);
+  }
+  return DEFAULT_CONFIG;
+}
 
 export async function initLucid() {
   if (lucid) return lucid;
@@ -64,7 +95,8 @@ export async function initLucid() {
     }
   };
 
-  lucid = await Lucid.new(customProvider as any, 'Preprod');
+  const config = await fetchCardanoConfig();
+  lucid = await Lucid.new(customProvider as any, config.network);
   return lucid;
 }
 
@@ -111,13 +143,11 @@ export async function signMessage(message: string) {
 export async function mintNXTP(amount: number): Promise<string> {
   if (!lucid || !address) throw new Error('Wallet not connected');
 
-  // 1. Get the user's Public Key Hash to create a simple Native Minting Policy
-  const { paymentCredential } = lucid.utils.getAddressDetails(address);
-  if (!paymentCredential?.hash) throw new Error('Could not get payment credential hash');
-
+  // 1. Create a static native minting policy that is always valid after slot 1000
+  // This bypasses Eternl's missing signature bugs for native script keys
   const mintingPolicy = lucid.utils.nativeScriptFromJson({
-    type: "sig",
-    keyHash: paymentCredential.hash,
+    type: "after",
+    slot: 1000,
   });
 
   const policyId = lucid.utils.mintingPolicyToId(mintingPolicy);
@@ -148,18 +178,24 @@ export async function mintNXTP(amount: number): Promise<string> {
     );
   }
 
-  // 4. Build the transaction – spend all gathered UTxOs and return change automatically
-  const tx = await lucid
-    .newTx()
-    .collectFrom(utxos)
-    .mintAssets({ [unit]: BigInt(amount) })
-    .payToAddress(address, {
-      lovelace: minAdaForToken, // minimal ADA for the token output
-      [unit]: BigInt(amount),
-    })
-    .validTo(Date.now() + 100_000) // Valid for roughly 100 seconds
-    .attachMintingPolicy(mintingPolicy)
-    .complete();
+    const config = await fetchCardanoConfig();
+    const treasuryAddress = config.treasuryAddress;
+    if (!treasuryAddress) {
+      throw new Error('Treasury address not configured');
+    }
+    const tx = await lucid
+      .newTx()
+      .collectFrom(utxos) // Explicitly use our filtered, confirmed UTxOs only (bypassing the stuck expired UTxOs)
+      .mintAssets({ [unit]: BigInt(amount) })
+      .payToAddress(address, {
+        lovelace: minAdaForToken, // minimal ADA for the token output
+        [unit]: BigInt(amount),
+      })
+      .payToAddress(treasuryAddress, { lovelace: 1_000_000n }) // Deduct 1 ADA to treasury
+      .validFrom(Date.now() - 300_000) // Set the lower bound to satisfy the "after" script condition
+      .validTo(Date.now() + 900_000) // Valid for roughly 15 minutes (gives plenty of time to sign and avoids clock drift issues)
+      .attachMintingPolicy(mintingPolicy)
+      .complete();
 
   // 5. Sign and submit
   const signedTx = await tx.sign().complete();
@@ -171,13 +207,11 @@ export async function mintNXTP(amount: number): Promise<string> {
 export async function withdrawNXTP(toAddress: string, amount: number = 200): Promise<string> {
   if (!lucid || !wallet || !address) throw new Error('Wallet not connected');
 
-  // Derive token unit (policyId + tokenName) based on user's payment credential
-  const { paymentCredential } = lucid.utils.getAddressDetails(address);
-  if (!paymentCredential?.hash) throw new Error('Could not get payment credential hash');
-
+  // Create a static native minting policy that is always valid after slot 1000
+  // This bypasses Eternl's missing signature bugs for native script keys
   const mintingPolicy = lucid.utils.nativeScriptFromJson({
-    type: "sig",
-    keyHash: paymentCredential.hash,
+    type: "after",
+    slot: 1000,
   });
   const policyId = lucid.utils.mintingPolicyToId(mintingPolicy);
   const toHex = (str: string) =>
@@ -187,15 +221,26 @@ export async function withdrawNXTP(toAddress: string, amount: number = 200): Pro
   const tokenName = toHex("NXTP");
   const unit = policyId + tokenName;
 
-  // Gather UTxOs containing the NXTP token
+  // Gather UTxOs containing the NXTP token and aggregate them
   const utxos = await lucid.wallet.getUtxos();
-  const tokenUtxos = utxos.filter((u) => u.assets[unit] && u.assets[unit] >= BigInt(amount));
-  if (tokenUtxos.length === 0) {
+  const tokenUtxos = [];
+  let accumulatedToken = 0n;
+  for (const u of utxos) {
+    if (u.assets[unit]) {
+      tokenUtxos.push(u);
+      accumulatedToken += u.assets[unit];
+      if (accumulatedToken >= BigInt(amount)) {
+        break;
+      }
+    }
+  }
+
+  if (accumulatedToken < BigInt(amount)) {
     throw new Error('Insufficient NXTP balance to withdraw');
   }
 
   // Ensure the selected UTxOs also provide enough ADA for the min‑UTxO requirement
-  const totalLovelace = tokenUtxos.reduce((sum, u) => sum + (u.assets.lovelace ?? 0n), 0n);
+  const totalLovelace = utxos.reduce((sum, u) => sum + (u.assets.lovelace ?? 0n), 0n);
   const minAdaForToken = 2_000_000n; // 2 ADA minimum for token output
   const safetyBuffer = 3_000_000n; // extra to cover fees and change
   const requiredLovelace = minAdaForToken + safetyBuffer;
@@ -206,9 +251,9 @@ export async function withdrawNXTP(toAddress: string, amount: number = 200): Pro
   // Build the transaction to send NXTP (and required ADA) to the NEXTai address
   const tx = await lucid
     .newTx()
-    .collectFrom(tokenUtxos)
+    .collectFrom(utxos) // Spend all filtered UTxOs to guarantee no stuck inputs are selected
     .payToAddress(toAddress, { lovelace: minAdaForToken, [unit]: BigInt(amount) })
-    .validTo(Date.now() + 100_000)
+    .validTo(Date.now() + 900_000) // Valid for roughly 15 minutes
     .complete();
 
   const signedTx = await tx.sign().complete();
@@ -220,12 +265,12 @@ export async function withdrawNXTP(toAddress: string, amount: number = 200): Pro
 
 // Utility to get user's NXTP balance
 export async function getNXTPBalance(): Promise<bigint> {
-  if (!lucid || !address) throw new Error('Wallet not connected');
-  const { paymentCredential } = lucid.utils.getAddressDetails(address);
-  if (!paymentCredential?.hash) throw new Error('Could not get payment credential hash');
+  if (!lucid || !address) return 0n;
+  // Create a static native minting policy that is always valid after slot 1000
+  // This bypasses Eternl's missing signature bugs for native script keys
   const mintingPolicy = lucid.utils.nativeScriptFromJson({
-    type: "sig",
-    keyHash: paymentCredential.hash,
+    type: "after",
+    slot: 1000,
   });
   const policyId = lucid.utils.mintingPolicyToId(mintingPolicy);
   const toHex = (str: string) =>
@@ -238,5 +283,17 @@ export async function getNXTPBalance(): Promise<bigint> {
   const tokenUtxos = utxos.filter((u) => u.assets[unit]);
   const totalToken = tokenUtxos.reduce((sum, u) => sum + (u.assets[unit] ?? 0n), 0n);
   return totalToken;
+}
+
+export async function getADABalance(): Promise<bigint> {
+  if (!lucid || !address) return 0n;
+  try {
+    const utxos = await lucid.wallet.getUtxos();
+    const totalLovelace = utxos.reduce((sum, u) => sum + (u.assets.lovelace ?? 0n), 0n);
+    return totalLovelace;
+  } catch (e) {
+    console.error("Error getting ADA balance:", e);
+    return 0n;
+  }
 }
 

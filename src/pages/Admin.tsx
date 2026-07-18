@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
+  RefreshCcw,
   Users, 
   ClipboardList, 
   Shield, 
@@ -15,18 +16,36 @@ import {
   ArrowRight,
   UserCheck,
   UserMinus,
-  ListCollapse
+  ListCollapse,
+  Link,
+  Twitter,
+  MessageCircle,
+  Youtube,
+  Globe
 } from 'lucide-react';
-import { collection, getDocs, doc, updateDoc, setDoc, deleteDoc, query, orderBy, serverTimestamp } from 'firebase/firestore';
-import { getFirebaseDb } from '../lib/firebase';
+import type { SocialTask, UserProfile, Survey, SurveyQuestion } from '../types';
+
+import { collection, getDocs, getDoc, doc, updateDoc, setDoc, deleteDoc, query, orderBy, where, serverTimestamp, arrayRemove } from 'firebase/firestore';
+import { getFirebaseDb, getFirebaseStorage } from '../lib/firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '../context/AuthContext';
+
+// Helper to upload image and get URL (available throughout component)
+const uploadImage = async (file: File): Promise<string> => {
+  const storage = getFirebaseStorage();
+  if (!storage) throw new Error('Firebase Storage not initialized');
+  const imgRef = ref(storage, `survey_images/${Date.now()}_${file.name}`);
+  await uploadBytes(imgRef, file);
+  const url = await getDownloadURL(imgRef);
+  return url;
+};
 import { saveAs } from 'file-saver';
 
 
  
 
 
-type TabType = 'dashboard' | 'users' | 'surveys' | 'submissions';
+type TabType = 'dashboard' | 'users' | 'surveys' | 'submissions' | 'social' | 'settings';
 
 export default function Admin() {
   const { profile, isFirebaseReady } = useAuth();
@@ -47,6 +66,7 @@ export default function Admin() {
   // New Survey Form State
   const [newSurveyTitle, setNewSurveyTitle] = useState('');
   const [newSurveyDesc, setNewSurveyDesc] = useState('');
+  const [newSurveyImageFile, setNewSurveyImageFile] = useState<File | null>(null);
   const [newSurveyReward, setNewSurveyReward] = useState(25);
   const [newSurveyType, setNewSurveyType] = useState<'text' | 'image' | 'voice'>('text');
   const [newQuestions, setNewQuestions] = useState<Omit<SurveyQuestion, 'id'>[]>([
@@ -63,6 +83,58 @@ export default function Admin() {
   // Survey publish loading state
   const [isSubmittingSurvey, setIsSubmittingSurvey] = useState(false);
 
+  // Social Tasks State
+  const [socialTasksList, setSocialTasksList] = useState<SocialTask[]>([]);
+  const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [newTaskDesc, setNewTaskDesc] = useState('');
+  const [newTaskReward, setNewTaskReward] = useState(15);
+  const [newTaskPlatform, setNewTaskPlatform] = useState<SocialTask['platform']>('twitter');
+  const [newTaskLink, setNewTaskLink] = useState('');
+  const [newTaskLocked, setNewTaskLocked] = useState(false);
+  const [isSubmittingTask, setIsSubmittingTask] = useState(false);
+  const [confirmDeleteTaskId, setConfirmDeleteTaskId] = useState<string | null>(null);
+  const [isSeeding, setIsSeeding] = useState(false);
+
+  // Cardano System Settings State
+  const [cardanoNetwork, setCardanoNetwork] = useState<'Preprod' | 'Mainnet'>('Preprod');
+  const [treasuryAddress, setTreasuryAddress] = useState('');
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+
+  const fetchSettings = async () => {
+    const db = getFirebaseDb();
+    if (!db) return;
+    try {
+      const docRef = doc(db, 'system_config', 'cardano');
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setCardanoNetwork(data.network || 'Preprod');
+        setTreasuryAddress(data.treasuryAddress || '');
+      }
+    } catch (e) {
+      console.error('Failed to fetch settings:', e);
+    }
+  };
+
+  const handleSaveSettings = async () => {
+    const db = getFirebaseDb();
+    if (!db) return;
+    setIsSavingSettings(true);
+    try {
+      const docRef = doc(db, 'system_config', 'cardano');
+      await setDoc(docRef, {
+        network: cardanoNetwork,
+        treasuryAddress: treasuryAddress.trim()
+      }, { merge: true });
+      alert('Cardano configuration saved successfully!');
+    } catch (e: any) {
+      console.error('Failed to save settings:', e);
+      alert(`Failed to save settings: ${e.message}`);
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
+
   // Check Admin Role or local bypass
   const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
   const hasAdminAccess = profile?.isAdmin || devBypass || (isLocalhost && devBypass);
@@ -71,36 +143,69 @@ export default function Admin() {
     const db = getFirebaseDb();
     if (!db) return;
     
+
+
     setLoading(true);
     setError(null);
+
+    // 1. Fetch Users
     try {
-      // 1. Fetch Users
       const usersSnap = await getDocs(collection(db, 'users'));
       const fetchedUsers = usersSnap.docs.map(doc => ({
         uid: doc.id,
         ...doc.data()
       })) as UserProfile[];
       setUsersList(fetchedUsers);
+    } catch (e: any) {
+      console.error('Error fetching users:', e);
+    }
 
-      // 2. Fetch Surveys
+    // 2. Fetch Surveys
+    try {
       const surveysSnap = await getDocs(query(collection(db, 'surveys'), orderBy('createdAt', 'desc')));
       const fetchedSurveys = surveysSnap.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       })) as Survey[];
       setSurveysList(fetchedSurveys);
+    } catch (e: any) {
+      console.error('Error fetching surveys:', e);
+    }
 
-      // 3. Fetch User Submissions
+    // 3. Fetch User Submissions
+    try {
       const submissionsSnap = await getDocs(collection(db, 'user_answers'));
       const fetchedSubmissions = submissionsSnap.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
       setSubmissionsList(fetchedSubmissions);
-      console.log('Fetched submissions count:', fetchedSubmissions.length);
     } catch (e: any) {
-      console.error('Error fetching admin data:', e);
-      setError(e.message || 'Failed to load administration data. Check Firestore rules.');
+      console.error('Error fetching submissions:', e);
+    }
+
+    // 4. Fetch Social Tasks
+    try {
+      const socialSnap = await getDocs(query(collection(db, 'social_tasks'), orderBy('order', 'asc')));
+      const fetchedTasks = socialSnap.docs.map(d => ({ id: d.id, ...d.data() })) as SocialTask[];
+      setSocialTasksList(fetchedTasks);
+    } catch (e: any) {
+      console.error('Error fetching social tasks with order, trying simple query:', e);
+      try {
+        const socialSnap = await getDocs(collection(db, 'social_tasks'));
+        const fetchedTasks = socialSnap.docs.map(d => ({ id: d.id, ...d.data() })) as SocialTask[];
+        fetchedTasks.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        setSocialTasksList(fetchedTasks);
+      } catch (e2: any) {
+        console.error('Failed to fetch social tasks completely:', e2);
+        setError(`Failed to load social tasks: ${e2.message}`);
+      }
+      // 5. Fetch Settings
+      try {
+        await fetchSettings();
+      } catch (e: any) {
+        console.error('Error fetching settings:', e);
+      }
     } finally {
       setLoading(false);
     }
@@ -196,13 +301,15 @@ export default function Admin() {
       const slug = newSurveyTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
       const surveyRef = doc(surveysCol, slug);
 
+      const imageUrl = newSurveyImageFile ? await uploadImage(newSurveyImageFile) : undefined;
       const newSurvey = {
         title: newSurveyTitle,
         description: newSurveyDesc,
         reward: Number(newSurveyReward),
         type: newSurveyType,
         createdAt: serverTimestamp(),
-        questions: questionsWithIds
+        questions: questionsWithIds,
+        imageUrl,
       };
 
       await setDoc(surveyRef, newSurvey);
@@ -218,12 +325,45 @@ export default function Admin() {
       setNewSurveyTitle('');
       setNewSurveyDesc('');
       setNewSurveyReward(25);
+      setNewSurveyImageFile(null);
       setNewQuestions([{ text: '', type: 'multiple-choice', options: ['Yes', 'No'] }]);
     } catch (e: any) {
       console.error('Failed to create survey:', e);
       setError(`Publish failed: ${e.message}`);
     } finally {
       setIsSubmittingSurvey(false);
+    }
+  };
+
+  // Refresh a survey so users can retake it
+  const handleRefreshSurvey = async (surveyId: string) => {
+    const db = getFirebaseDb();
+    if (!db) return;
+    try {
+      const surveyRef = doc(db, 'surveys', surveyId);
+      // Update a timestamp to force re-evaluation
+      await updateDoc(surveyRef, { refreshedAt: serverTimestamp() });
+      // Delete all user answer documents for this survey
+      const answersSnap = await getDocs(query(collection(db, 'user_answers'), where('surveyId', '==', surveyId)));
+      for (const answerDoc of answersSnap.docs) await deleteDoc(answerDoc.ref);
+      // Also delete any response docs in the sub‑collection (legacy path)
+      const respSnap = await getDocs(collection(db, `surveys/${surveyId}/responses`));
+      for (const docSnap of respSnap.docs) await deleteDoc(docSnap.ref);
+
+      // Remove the survey from all users' completedSurveys lists
+      const usersQuery = query(collection(db, 'users'), where('completedSurveys', 'array-contains', surveyId));
+      const usersSnap = await getDocs(usersQuery);
+      for (const userDoc of usersSnap.docs) {
+        await updateDoc(userDoc.ref, {
+          completedSurveys: arrayRemove(surveyId)
+        });
+      }
+
+      // Refetch the list to reflect changes
+      fetchAdminData();
+    } catch (e: any) {
+      console.error('Refresh survey failed:', e);
+      setError(`Refresh failed: ${e.message}`);
     }
   };
 
@@ -240,6 +380,129 @@ export default function Admin() {
       setConfirmDeleteId(null);
       setError(`Delete failed: ${e.message}`);
     }
+  };
+
+  // Social Task Handlers
+  const handleCreateSocialTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isSubmittingTask) return;
+    const db = getFirebaseDb();
+    if (!db) return;
+
+    setIsSubmittingTask(true);
+    setError(null);
+    try {
+      const slug = newTaskTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      const taskRef = doc(collection(db, 'social_tasks'), slug);
+      const newTask: Omit<SocialTask, 'id'> = {
+        title: newTaskTitle,
+        description: newTaskDesc,
+        reward: Number(newTaskReward),
+        platform: newTaskPlatform,
+        link: newTaskLink,
+        locked: newTaskLocked,
+        order: socialTasksList.length,
+        createdAt: serverTimestamp()
+      };
+      await setDoc(taskRef, newTask);
+      setSocialTasksList(prev => {
+        const exists = prev.find(t => t.id === slug);
+        if (exists) return prev.map(t => t.id === slug ? { id: slug, ...newTask } as SocialTask : t);
+        return [...prev, { id: slug, ...newTask } as SocialTask];
+      });
+      // Reset form
+      setNewTaskTitle('');
+      setNewTaskDesc('');
+      setNewTaskReward(15);
+      setNewTaskLink('');
+      setNewTaskLocked(false);
+    } catch (e: any) {
+      setError(`Failed to create task: ${e.message}`);
+    } finally {
+      setIsSubmittingTask(false);
+    }
+  };
+
+  const handleDeleteSocialTask = async (taskId: string) => {
+    const db = getFirebaseDb();
+    if (!db) return;
+    try {
+      await deleteDoc(doc(db, 'social_tasks', taskId));
+      setSocialTasksList(prev => prev.filter(t => t.id !== taskId));
+      setConfirmDeleteTaskId(null);
+    } catch (e: any) {
+      setError(`Delete failed: ${e.message}`);
+      setConfirmDeleteTaskId(null);
+    }
+  };
+
+  const handleSeedDefaultTasks = async () => {
+    const db = getFirebaseDb();
+    if (!db) return;
+    setIsSeeding(true);
+    setError(null);
+    try {
+      const defaultTasks = [
+        { title: 'Follow CEO on X', reward: 20, platform: 'twitter' as const, link: 'https://x.com/ogleksb', description: 'Follow the official X profile of the NEXT.AI CEO for insider insights, announcements, and vision.', order: 0 },
+        { title: 'Follow Admin on X', reward: 10, platform: 'twitter' as const, link: 'https://x.com/Ghdaniel19', description: 'Follow our official Administrator (@Ghdaniel19) on X for verified network directives.', order: 1 },
+        { title: 'Join Official Telegram', reward: 15, platform: 'telegram' as const, link: 'https://t.me/nextai', description: 'Engage with other contributors in our secure neural channel.', order: 2 },
+        { title: 'Follow WNXT (Official)', reward: 20, platform: 'twitter' as const, link: 'https://x.com/G_WNXT', description: 'Follow our official WNXT handle on X to stay updated on node and protocol developments.', order: 3 },
+        { title: 'Follow Gimbalabs (Partners)', reward: 15, platform: 'twitter' as const, link: 'https://x.com/gimbalabs', description: 'Connect with Gimbalabs on X, our core partner building decentralized APIs and learning spaces.', order: 4 },
+        { title: 'Follow Cardano Foundation', reward: 15, platform: 'twitter' as const, link: 'https://x.com/Cardano_CF', description: 'Follow the Cardano Foundation on X, backing the growth and adoption of Cardano ecosystem.', order: 5 },
+        { title: 'Watch Protocol AMA', reward: 50, platform: 'youtube' as const, link: 'https://youtube.com', locked: true, description: 'Unlock this mission by completing 3 research surveys.', order: 6 },
+      ];
+
+      const seededTasks: SocialTask[] = [];
+      for (const task of defaultTasks) {
+        const slug = task.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        const taskRef = doc(collection(db, 'social_tasks'), slug);
+        await setDoc(taskRef, {
+          ...task,
+          createdAt: serverTimestamp()
+        });
+        seededTasks.push({ id: slug, ...task } as SocialTask);
+      }
+      setSocialTasksList(seededTasks);
+    } catch (e: any) {
+      setError(`Failed to seed tasks: ${e.message}`);
+    } finally {
+      setIsSeeding(false);
+    }
+  };
+
+  const handleGrantAdminInDb = async () => {
+    const db = getFirebaseDb();
+    if (db && profile?.uid) {
+      try {
+        const userRef = doc(db, 'users', profile.uid);
+        await updateDoc(userRef, { isAdmin: true });
+        alert("Admin status successfully granted in Firestore! Refreshing to apply permissions...");
+        window.location.reload();
+      } catch (e: any) {
+        console.error("Failed to grant admin status:", e);
+        alert("Failed to grant admin status: " + e.message);
+      }
+    } else {
+      alert("No active user profile session. Please make sure you are logged in.");
+    }
+  };
+
+  // Platform icon helper
+  const PlatformIcon = ({ platform }: { platform: SocialTask['platform'] }) => {
+    switch (platform) {
+      case 'twitter': return <Twitter size={16} />;
+      case 'telegram': return <MessageCircle size={16} />;
+      case 'youtube': return <Youtube size={16} />;
+      default: return <Globe size={16} />;
+    }
+  };
+
+  const platformColors: Record<SocialTask['platform'], string> = {
+    twitter: 'bg-sky-500/10 text-sky-400 border-sky-500/20',
+    telegram: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+    youtube: 'bg-red-500/10 text-red-400 border-red-500/20',
+    discord: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',
+    other: 'bg-white/5 text-white/50 border-white/10',
   };
 
   // Helpers
@@ -262,21 +525,32 @@ export default function Admin() {
         Object.keys(sub.answers || {}).forEach((qid) => allQuestionIds.add(qid));
       });
       const questionHeaders = Array.from(allQuestionIds);
-      const header = ['Survey Title', 'User Email', ...questionHeaders];
+      
+      const escapeCSV = (val: any) => {
+        if (val === undefined || val === null) return '';
+        const str = String(val);
+        if (str.includes('"') || str.includes(',') || str.includes('\n') || str.includes('\r')) {
+          return `"${str.replace(/"/g, '""')}"`;
+        }
+        return str;
+      };
+
       const rows: string[] = [];
-      rows.push(header.map((h) => `"${h}"`).join(','));
+      const header = ['Survey Title', 'User Email', ...questionHeaders];
+      rows.push(header.map(escapeCSV).join(','));
+
       submissionsList.forEach((sub) => {
         const surveyTitle = getSurveyTitle(sub.surveyId);
         const userEmail = getUserEmail(sub.userId);
         const answers = sub.answers || {};
-        const row = [surveyTitle, userEmail];
-        questionHeaders.forEach((qid) => {
-          const ans = answers[qid];
-          row.push(ans !== undefined ? `"${String(ans).replace(/"/g, '""')}"` : '');
-        });
-        rows.push(row.map((c) => `"${c}"`).join(','));
+        const row = [
+          surveyTitle,
+          userEmail,
+          ...questionHeaders.map((qid) => answers[qid])
+        ];
+        rows.push(row.map(escapeCSV).join(','));
       });
-      const csvContent = rows.join('\n');
+      const csvContent = rows.join('\r\n');
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const filename = `survey_submissions_${new Date().toISOString().split('T')[0]}.csv`;
       saveAs(blob, filename);
@@ -308,7 +582,17 @@ export default function Admin() {
               Running locally or want to preview the dashboard interface?
             </p>
             <button 
-              onClick={() => setDevBypass(true)}
+              onClick={async () => {
+                setDevBypass(true);
+                const db = getFirebaseDb();
+                if (db && profile?.uid) {
+                  try {
+                    await updateDoc(doc(db, 'users', profile.uid), { isAdmin: true });
+                  } catch (e) {
+                    console.warn("Could not auto-grant admin in DB on bypass click:", e);
+                  }
+                }
+              }}
               className="w-full bg-brand hover:shadow-brand text-black py-3 rounded-xl font-black uppercase text-xs tracking-wider transition-all flex items-center justify-center gap-2"
             >
               <span>Developer Bypass Mode</span>
@@ -347,7 +631,7 @@ export default function Admin() {
 
         {/* Tab Controls */}
         <div className="flex bg-white/5 border border-white/10 p-1.5 rounded-2xl gap-1 overflow-x-auto">
-          {(['dashboard', 'users', 'surveys', 'submissions'] as TabType[]).map((tab) => (
+          {(['dashboard', 'users', 'surveys', 'submissions', 'social', 'settings'] as TabType[]).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -357,11 +641,29 @@ export default function Admin() {
                   : 'text-white/50 hover:text-white hover:bg-white/5'
               }`}
             >
-              {tab}
+              {tab === 'social' ? '🔗 Social' : tab === 'settings' ? '⚙️ Settings' : tab}
             </button>
           ))}
         </div>
       </div>
+
+      {devBypass && !profile?.isAdmin && (
+        <div className="bg-amber-500/10 border border-amber-500/20 text-amber-400 p-5 rounded-2xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 text-sm">
+          <div className="flex gap-3">
+            <AlertCircle size={20} className="shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold text-amber-400">Developer Bypass Mode (Database Not Authorized)</p>
+              <p className="text-white/60">Your current Firestore account is not marked as admin. You will get permission errors when creating/seeding tasks or surveys.</p>
+            </div>
+          </div>
+          <button
+            onClick={handleGrantAdminInDb}
+            className="bg-amber-500 hover:bg-amber-600 text-black px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider shrink-0 transition-all active:scale-95 shadow-[0_0_15px_rgba(245,158,11,0.3)]"
+          >
+            🔑 Grant Database Admin
+          </button>
+        </div>
+      )}
 
       {error && (
         <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-5 rounded-2xl flex gap-3 text-sm">
@@ -677,6 +979,22 @@ export default function Admin() {
                       </div>
                     </div>
 
+                    {newSurveyType === 'image' && (
+                      <div className="space-y-1.5">
+                        <label className="text-[9px] font-black uppercase tracking-[0.2em] text-white/30">Survey Image Reference</label>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => {
+                            if (e.target.files && e.target.files[0]) {
+                              setNewSurveyImageFile(e.target.files[0]);
+                            }
+                          }}
+                          className="w-full bg-black/40 border border-white/10 rounded-xl py-2 px-4 focus:outline-none focus:border-brand/40 text-sm text-white/80"
+                        />
+                      </div>
+                    )}
+
                     {/* Questions Builder */}
                     <div className="pt-4 border-t border-white/5 space-y-4">
                       <div className="flex justify-between items-center">
@@ -822,13 +1140,22 @@ export default function Admin() {
                               </button>
                             </div>
                           ) : (
-                            <button
-                              onClick={() => setConfirmDeleteId(survey.id)}
-                              className="bg-red-500/10 border border-red-500/20 hover:bg-red-500 text-red-400 hover:text-black p-2.5 rounded-xl transition-all self-end sm:self-center"
-                              title="Delete survey"
-                            >
-                              <Trash2 size={16} />
-                            </button>
+                            <div className="flex gap-2 self-end sm:self-center">
+                              <button
+                                onClick={() => setConfirmDeleteId(survey.id)}
+                                className="bg-red-500/10 border border-red-500/20 hover:bg-red-500 text-red-400 hover:text-black p-2.5 rounded-xl transition-all"
+                                title="Delete survey"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                              <button
+                                onClick={() => handleRefreshSurvey(survey.id)}
+                                className="bg-blue-500/10 border border-blue-500/20 hover:bg-blue-500 text-blue-400 hover:text-white p-2.5 rounded-xl transition-all"
+                                title="Refresh survey"
+                              >
+                                <RefreshCcw size={16} />
+                              </button>
+                            </div>
                           )}
                         </div>
                       ))
@@ -889,7 +1216,7 @@ export default function Admin() {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           {Object.entries(sub.answers || {}).map(([qId, ans]) => (
                             <div key={qId} className="bg-black/30 border border-white/5 p-4 rounded-2xl space-y-1">
-                              <span className="text-[8px] font-black text-brand uppercase">{qId} Response:</span>
+                              <span className="text-[8px] font-black text-brand uppercase">{qId} ({getUserEmail(sub.userId)}) Response:</span>
                               <p className="text-xs font-semibold text-white/80">{String(ans)}</p>
                             </div>
                           ))}
@@ -898,6 +1225,281 @@ export default function Admin() {
                     </div>
                   ))
                 )}
+              </div>
+            </motion.div>
+          )}
+
+          {/* TAB 5: SOCIAL LINKS MANAGER */}
+          {activeTab === 'social' && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="grid grid-cols-1 lg:grid-cols-3 gap-8"
+            >
+              {/* Create Task Form */}
+              <div className="lg:col-span-1">
+                <div className="glass-card p-6 sm:p-8 rounded-[32px] border border-white/10 space-y-6">
+                  <h3 className="text-xl font-black uppercase italic tracking-tight text-white flex items-center gap-2">
+                    <Link size={18} className="text-brand" />
+                    Add Social Task
+                  </h3>
+
+                  <form onSubmit={handleCreateSocialTask} className="space-y-4">
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black uppercase tracking-[0.2em] text-white/30">Task Title</label>
+                      <input
+                        type="text"
+                        required
+                        value={newTaskTitle}
+                        onChange={(e) => setNewTaskTitle(e.target.value)}
+                        placeholder="e.g. Follow NEXT.AI on X"
+                        className="w-full bg-black/40 border border-white/10 rounded-xl py-3 px-4 focus:outline-none focus:border-brand/40 text-sm font-semibold text-white/80"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black uppercase tracking-[0.2em] text-white/30">Description</label>
+                      <textarea
+                        required
+                        value={newTaskDesc}
+                        onChange={(e) => setNewTaskDesc(e.target.value)}
+                        placeholder="Describe what users need to do..."
+                        className="w-full bg-black/40 border border-white/10 rounded-xl py-3 px-4 focus:outline-none focus:border-brand/40 text-sm font-semibold text-white/80 min-h-[70px]"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black uppercase tracking-[0.2em] text-white/30">Link URL</label>
+                      <input
+                        type="url"
+                        required
+                        value={newTaskLink}
+                        onChange={(e) => setNewTaskLink(e.target.value)}
+                        placeholder="https://x.com/..."
+                        className="w-full bg-black/40 border border-white/10 rounded-xl py-3 px-4 focus:outline-none focus:border-brand/40 text-sm font-mono text-white/80"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-[9px] font-black uppercase tracking-[0.2em] text-white/30">Platform</label>
+                        <select
+                          value={newTaskPlatform}
+                          onChange={(e) => setNewTaskPlatform(e.target.value as SocialTask['platform'])}
+                          className="w-full bg-black/40 border border-white/10 rounded-xl py-3.5 px-4 focus:outline-none focus:border-brand/40 text-xs font-semibold text-white/80"
+                        >
+                          <option value="twitter">Twitter / X</option>
+                          <option value="telegram">Telegram</option>
+                          <option value="youtube">YouTube</option>
+                          <option value="discord">Discord</option>
+                          <option value="other">Other</option>
+                        </select>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-[9px] font-black uppercase tracking-[0.2em] text-white/30">Reward (PTS)</label>
+                        <input
+                          type="number"
+                          required
+                          min={1}
+                          value={newTaskReward}
+                          onChange={(e) => setNewTaskReward(Number(e.target.value))}
+                          className="w-full bg-black/40 border border-white/10 rounded-xl py-3 px-4 focus:outline-none focus:border-brand/40 text-sm font-semibold text-white/80"
+                        />
+                      </div>
+                    </div>
+
+                    <label className="flex items-center gap-3 cursor-pointer group select-none">
+                      <div
+                        onClick={() => setNewTaskLocked(v => !v)}
+                        className={`w-10 h-5 rounded-full transition-colors relative flex-shrink-0 ${
+                          newTaskLocked ? 'bg-amber-500/60 border border-amber-500/40' : 'bg-white/10 border border-white/10'
+                        }`}
+                      >
+                        <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${
+                          newTaskLocked ? 'left-5' : 'left-0.5'
+                        }`} />
+                      </div>
+                      <span className="text-[9px] font-black uppercase tracking-[0.2em] text-white/40 group-hover:text-white/60 transition-colors">
+                        Lock Task (require prerequisites)
+                      </span>
+                    </label>
+
+                    <button
+                      type="submit"
+                      disabled={isSubmittingTask}
+                      className={`w-full font-black uppercase tracking-wider py-3.5 rounded-xl text-xs transition-all mt-2 flex items-center justify-center gap-2 ${
+                        isSubmittingTask
+                          ? 'bg-brand/40 text-black/50 cursor-not-allowed'
+                          : 'bg-brand text-black hover:shadow-brand'
+                      }`}
+                    >
+                      {isSubmittingTask ? (
+                        <>
+                          <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                          </svg>
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <Plus size={14} strokeWidth={3} />
+                          Publish Task
+                        </>
+                      )}
+                    </button>
+                  </form>
+                </div>
+              </div>
+
+              {/* Tasks List */}
+              <div className="lg:col-span-2">
+                <div className="glass-card p-6 sm:p-8 rounded-[32px] border border-white/10 space-y-6">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xl font-black uppercase italic tracking-tight text-white flex items-center gap-2">
+                      <Database size={18} className="text-brand" />
+                      Live Social Tasks ({socialTasksList.length})
+                    </h3>
+                    <span className="text-[9px] font-black uppercase tracking-widest text-white/30 border border-white/10 px-3 py-1 rounded-full">
+                      Firestore · social_tasks
+                    </span>
+                  </div>
+
+                  {socialTasksList.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-16 space-y-4 text-center">
+                      <div className="w-14 h-14 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-white/20">
+                        <Link size={24} />
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-sm text-white/40 italic">No social tasks published yet.</p>
+                        <p className="text-xs text-white/20">Tasks added here will appear dynamically on the Neural Missions page.</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleSeedDefaultTasks}
+                        disabled={isSeeding}
+                        className="bg-brand hover:shadow-brand text-black py-2.5 px-5 rounded-xl text-xs font-black uppercase tracking-wider transition-all disabled:opacity-50"
+                      >
+                        {isSeeding ? 'Seeding...' : '⚡ Seed Default Tasks'}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {socialTasksList.map((task) => (
+                        <div
+                          key={task.id}
+                          className="p-5 bg-white/5 border border-white/10 rounded-3xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 hover:border-white/20 transition-all"
+                        >
+                          <div className="flex items-start gap-4">
+                            <div className={`w-10 h-10 rounded-xl border flex items-center justify-center flex-shrink-0 ${platformColors[task.platform]}`}>
+                              <PlatformIcon platform={task.platform} />
+                            </div>
+                            <div className="space-y-1.5">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h4 className="font-bold text-white uppercase italic text-sm">{task.title}</h4>
+                                <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border ${platformColors[task.platform]}`}>
+                                  {task.platform}
+                                </span>
+                                {task.locked && (
+                                  <span className="px-2 py-0.5 rounded text-[8px] font-black uppercase border bg-amber-500/10 text-amber-400 border-amber-500/20">
+                                    Locked
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-white/40 line-clamp-1">{task.description}</p>
+                              <div className="flex gap-4 text-[10px] text-white/30">
+                                <span>Reward: <strong className="text-brand font-bold">+{task.reward} PTS</strong></span>
+                                <a
+                                  href={task.link}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="font-mono text-white/30 hover:text-brand transition-colors truncate max-w-[200px]"
+                                >
+                                  {task.link}
+                                </a>
+                              </div>
+                            </div>
+                          </div>
+
+                          {confirmDeleteTaskId === task.id ? (
+                            <div className="flex items-center gap-2 self-end sm:self-center flex-shrink-0">
+                              <span className="text-[9px] text-red-400 font-black uppercase tracking-wider">Confirm?</span>
+                              <button
+                                onClick={() => handleDeleteSocialTask(task.id)}
+                                className="bg-red-500 text-white p-2.5 rounded-xl transition-all hover:bg-red-600"
+                              >
+                                <CheckCircle2 size={16} />
+                              </button>
+                              <button
+                                onClick={() => setConfirmDeleteTaskId(null)}
+                                className="bg-white/10 text-white/60 p-2.5 rounded-xl transition-all hover:bg-white/20"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setConfirmDeleteTaskId(task.id)}
+                              className="bg-red-500/10 border border-red-500/20 hover:bg-red-500 text-red-400 hover:text-black p-2.5 rounded-xl transition-all self-end sm:self-center flex-shrink-0"
+                              title="Delete task"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {/* TAB 6: SETTINGS MANAGER */}
+          {activeTab === 'settings' && (
+            <motion.div 
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="max-w-2xl mx-auto glass-card p-10 rounded-[40px] border border-white/10 space-y-8 relative overflow-hidden group"
+            >
+              <div className="space-y-2 relative z-10 border-b border-white/10 pb-6">
+                <h2 className="text-3xl font-black uppercase italic tracking-tighter">System settings</h2>
+                <p className="text-white/40 text-xs font-semibold tracking-wide uppercase italic">Cardano Network & Treasury Address Configuration</p>
+              </div>
+
+              <div className="space-y-6 relative z-10">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-white/40">Cardano Network</label>
+                  <select 
+                    value={cardanoNetwork}
+                    onChange={(e) => setCardanoNetwork(e.target.value as any)}
+                    className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 focus:outline-none focus:border-brand/40 transition-colors font-semibold text-white/80"
+                  >
+                    <option value="Preprod" className="bg-[#0a0a0a] text-white">Cardano Preprod Testnet</option>
+                    <option value="Mainnet" className="bg-[#0a0a0a] text-white">Cardano Mainnet</option>
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-white/40">Treasury Address</label>
+                  <input 
+                    type="text"
+                    placeholder="Enter treasury address (e.g. addr1... or addr_test1...)"
+                    value={treasuryAddress}
+                    onChange={(e) => setTreasuryAddress(e.target.value)}
+                    className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 focus:outline-none focus:border-brand/40 transition-colors font-semibold text-white/80 font-mono text-sm"
+                  />
+                  <p className="text-[10px] text-white/30 italic">All minting fees and tier upgrades will be routed to this address on the selected network.</p>
+                </div>
+
+                <button 
+                  onClick={handleSaveSettings}
+                  disabled={isSavingSettings || !treasuryAddress.trim()}
+                  className="bg-brand text-black px-8 py-4 rounded-xl font-black uppercase tracking-widest text-xs hover:shadow-brand transition-all w-full flex items-center justify-center gap-2"
+                >
+                  {isSavingSettings ? 'Saving Configuration...' : 'Save Configuration'}
+                </button>
               </div>
             </motion.div>
           )}

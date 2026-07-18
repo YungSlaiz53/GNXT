@@ -154,9 +154,9 @@ export default function Dashboard() {
             </h4>
             <div className="space-y-4">
               {[
-                { id: 'follow-ceo', title: 'Follow CEO on X', reward: 20, icon: Twitter, bColor: 'bg-amber-500/10', iColor: 'text-amber-400', link: 'https://x.com/ogleksb' },
-                { id: 'follow-admin-twitter', title: 'Follow Admin on X', reward: 10, icon: Twitter, bColor: 'bg-blue-500/10', iColor: 'text-blue-400', link: 'https://x.com/Ghdaniel19' },
-                { id: 'join-telegram', title: 'Join Telegram', reward: 15, icon: MessageCircle, bColor: 'bg-emerald-500/10', iColor: 'text-emerald-400', link: 'https://t.me/nextai' },
+                { id: 'follow-ceo', title: 'Follow CEO on X', reward: 20, icon: Twitter, bColor: 'bg-amber-500/10', iColor: 'text-amber-400', link: 'https://x.com/ogleksb', locked: false },
+                { id: 'follow-admin-twitter', title: 'Follow Admin on X', reward: 10, icon: Twitter, bColor: 'bg-blue-500/10', iColor: 'text-blue-400', link: 'https://x.com/Ghdaniel19', locked: false },
+                { id: 'join-telegram', title: 'Join Telegram', reward: 15, icon: MessageCircle, bColor: 'bg-emerald-500/10', iColor: 'text-emerald-400', link: 'https://t.me/nextai', locked: false },
               ].map((task, i) => {
                 const isCompleted = profile?.completedTasks?.includes(task.id);
                 return (

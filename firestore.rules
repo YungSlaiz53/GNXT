@@ -3,11 +3,11 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // Helper function to check if the current user is an admin
-    function isAdmin() {
-      return request.auth != null &&
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
-    }
+      function isAdmin() {
+  return request.auth != null &&
+    exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+    get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+}
 
     // Users collection
     match /users/{userId} {
@@ -36,6 +36,22 @@ service cloud.firestore {
       // Admins can read any answer and delete any answer
       allow read, delete: if isAdmin();
       // No updates allowed – keep answers immutable
+    }
+
+        // Survey responses subcollection – allow admin to delete responses
+    // Social Tasks collection
+    match /social_tasks/{taskId} {
+      // Authenticated users can read tasks
+      allow read, list: if request.auth != null;
+      // Only admins can create, update, or delete tasks
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /surveys/{surveyId}/responses/{responseId} {
+      // Admins can delete any response document
+      allow delete: if isAdmin();
+      // Users can read their own responses (optional, not required for admin refresh)
+      allow read: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
     }
   }
 }

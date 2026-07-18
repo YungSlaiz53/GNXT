@@ -1,11 +1,11 @@
 import { Link, useLocation } from 'react-router-dom';
-import { withdrawNXTP, getNXTPBalance } from '../../cardano';
+import { withdrawNXTP, getNXTPBalance, fetchCardanoConfig, address as cardanoAddress } from '../../cardano';
 
 import { LayoutDashboard, ClipboardList, Users, Trophy, User, Zap, X, FileText } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { doc, updateDoc, increment } from 'firebase/firestore';
 import { getFirebaseDb } from '../../lib/firebase';
 
@@ -28,22 +28,61 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const location = useLocation();
   const { profile } = useAuth();
   const [showPremiumModal, setShowPremiumModal] = useState(false);
+  const [upgrading, setUpgrading] = useState(false);
+  const [confirmingTx, setConfirmingTx] = useState(false);
+  const [countdown, setCountdown] = useState(25);
+  const [walletNxtp, setWalletNxtp] = useState<bigint>(0n);
+  const [isConnected, setIsConnected] = useState<boolean>(!!cardanoAddress);
   const UPGRADE_AMOUNT = 200; // Upgrade cost in NXTP
 
+  const fetchWalletBalance = async () => {
+    try {
+      const bal = await getNXTPBalance();
+      setWalletNxtp(bal);
+      setIsConnected(true);
+    } catch (e) {
+      setWalletNxtp(0n);
+      setIsConnected(false);
+    }
+  };
+
+  useEffect(() => {
+    if (showPremiumModal) {
+      fetchWalletBalance();
+    }
+  }, [showPremiumModal]);
+
+  useEffect(() => {
+    const handleWalletChange = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      setIsConnected(!!customEvent.detail.address);
+      if (customEvent.detail.address) {
+        fetchWalletBalance();
+      } else {
+        setWalletNxtp(0n);
+      }
+    };
+
+    window.addEventListener('cardano-wallet-changed', handleWalletChange);
+    return () => {
+      window.removeEventListener('cardano-wallet-changed', handleWalletChange);
+    };
+  }, []);
 
   const handleUpgrade = async () => {
-    if (!profile || profile.points < UPGRADE_AMOUNT) return;
+    if (!profile) return;
     
     setUpgrading(true);
     try {
       const db = getFirebaseDb();
       if (!db || !profile.uid) return;
       
-      const NEXTAI_ADDRESS = 'addr_test1qzttgaf9cqe5582jsczam5tzuynmmeuvpc2wawhawfvendg8xmzx3p8336snstxypq2m4s6dt3endxl4spkqlwktvlzsd8ygsh';
+      const config = await fetchCardanoConfig();
+      const NEXTAI_ADDRESS = config.treasuryAddress;
       // Check NXTP balance before withdrawal
       const nxtpBalance = await getNXTPBalance();
       if (nxtpBalance < 200n) {
-        console.error('Insufficient NXTP balance for upgrade:', nxtpBalance.toString());
+        alert(`Insufficient NXTP balance in your connected wallet. You currently have ${nxtpBalance.toString()} NXTP, but need at least 200 NXTP to upgrade.`);
         setUpgrading(false);
         return;
       }
@@ -51,16 +90,28 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       
       const userRef = doc(db, 'users', profile.uid);
       await updateDoc(userRef, {
-        points: increment(-UPGRADE_AMOUNT),
         isVerified: true
       });
       
-      setTimeout(() => {
-        setShowPremiumModal(false);
-        setUpgrading(false);
-      }, 1500);
+      // Start confirmation countdown so the user knows to wait for block confirmation
+      setConfirmingTx(true);
+      setCountdown(25);
+      
+      const timer = setInterval(() => {
+        setCountdown((prev) => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            setConfirmingTx(false);
+            setShowPremiumModal(false);
+            setUpgrading(false);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
     } catch (error) {
       console.error('Upgrade failed:', error);
+      alert(error instanceof Error ? error.message : 'Transaction failed or was rejected.');
       setUpgrading(false);
     }
   };
@@ -170,22 +221,37 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
               <h3 className="text-2xl font-black uppercase tracking-tighter italic text-white mb-2">Unlock Premium</h3>
               <p className="text-sm text-white/60 mb-8 font-medium">Verify your node to access exclusive highest-yielding missions and a 2x boost on all referral rewards.</p>
 
-              <div className="bg-white/5 border border-white/10 rounded-2xl p-4 mb-6">
-                <p className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-1">Upgrade Cost</p>
-                <p className="text-2xl font-black text-brand tracking-tighter">200 NXTP</p>
+              <div className="bg-white/5 border border-white/10 rounded-2xl p-4 mb-6 flex justify-between items-center text-left">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-1">Upgrade Cost</p>
+                  <p className="text-xl font-black text-brand tracking-tighter">200 NXTP</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-1">Your Wallet Balance</p>
+                  <p className="text-lg font-black text-white/80">{walletNxtp.toString()} NXTP</p>
+                </div>
               </div>
 
               <div className="space-y-3">
                 <button 
                   onClick={handleUpgrade}
-                  disabled={upgrading || (profile?.points || 0) < UPGRADE_AMOUNT}
+                  disabled={upgrading || confirmingTx || !isConnected || walletNxtp < 200n}
                   className="w-full bg-brand text-black font-black text-xs uppercase tracking-widest py-4 rounded-xl hover:shadow-brand transition-all active:scale-95 disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-2"
                 >
                   {upgrading ? (
                     <>
                       <span className="animate-spin text-lg">⚙</span>
-                      Processing...
+                      Signing Tx...
                     </>
+                  ) : confirmingTx ? (
+                    <>
+                      <span className="animate-spin text-lg">⚙</span>
+                      Confirming Block ({countdown}s)...
+                    </>
+                  ) : !isConnected ? (
+                    'Wallet Not Connected'
+                  ) : walletNxtp < 200n ? (
+                    'Insufficient NXTP Balance'
                   ) : (
                     'Confirm Upgrade'
                   )}

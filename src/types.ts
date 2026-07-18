@@ -24,7 +24,8 @@ export interface Survey {
   reward: number;
   type: 'text' | 'image' | 'voice';
   questions: SurveyQuestion[];
-  createdAt: any;
+  imageUrl?: string;
+  createdAt?: any;
 }
 
 export interface SurveyQuestion {
@@ -33,6 +34,18 @@ export interface SurveyQuestion {
   type: 'text' | 'multiple-choice' | 'image-review' | 'voice';
   options?: string[];
   imageUrl?: string;
+}
+
+export interface SocialTask {
+  id: string;
+  title: string;
+  description: string;
+  reward: number;
+  platform: 'twitter' | 'telegram' | 'youtube' | 'discord' | 'other';
+  link: string;
+  locked?: boolean;
+  order?: number;
+  createdAt?: any;
 }
 
 export interface Task {

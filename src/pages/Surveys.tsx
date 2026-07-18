@@ -57,7 +57,7 @@ export default function Surveys() {
     setAnswers(prev => ({ ...prev, [questionId]: answer }));
     
     if (activeSurvey && currentQuestion < activeSurvey.questions.length - 1) {
-      setTimeout(() => setCurrentQuestion(prev => prev + 1), 300);
+      setCurrentQuestion(prev => prev + 1);
     } else {
       submitSurvey();
     }
@@ -96,7 +96,7 @@ export default function Surveys() {
         setCompleted(false);
         setCurrentQuestion(0);
         setAnswers({});
-      }, 3000);
+      }, 800);
     } catch (e) {
       console.error('Submission error:', e);
     } finally {

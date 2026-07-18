@@ -72,6 +72,32 @@ export const getFirebaseDb = () => {
   return db;
 };
 
+import { getStorage, FirebaseStorage } from 'firebase/storage';
+
+/**
+ * Gets the Firebase Storage instance. Returns null if Firebase is not initialized.
+ */
+export const getFirebaseStorage = (): FirebaseStorage | null => {
+  if (typeof window === 'undefined') return null; // safety for SSR
+  try {
+    // Reuse existing app or initialize if needed
+    if (!app) {
+      try {
+        app = getApp();
+      } catch (e) {
+        return null;
+      }
+    }
+    return getStorage(app);
+  } catch (e) {
+    console.error('Failed to get Firebase Storage:', e);
+    return null;
+  }
+};
+
+// Legacy placeholder (keep for compatibility)
+export const storageInstance = null as unknown as FirebaseStorage;
+
 // Legacy placeholders to maintain compatibility without crashing
 export const authInstance = null as unknown as Auth;
 export const dbInstance = null as unknown as Firestore;
