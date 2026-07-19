@@ -1,4 +1,3 @@
-we have a submittion release to create again so this is a sample how we go ;
 NEXTai
 
 OGLEKWU BLESSED DAVID, Solo BUILDER
