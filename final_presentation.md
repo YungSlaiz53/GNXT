@@ -9,7 +9,7 @@ NEXT.AI is a decentralized intelligence network protocol built on Cardano. It al
 
 Official Public Repository Link: https://github.com/YungSlaiz53/GNXT.git
 Deployed Public Product Link: https://nextai-99aa5.web.app/
-Primary X Posting Account: YungSlaiz53 @ogleksb
+Primary X Posting Account: DeFi_SaiTama @ogleksb
 Team Members: OGLEKWU BLESSED DAVID
 
 What the Product Does
